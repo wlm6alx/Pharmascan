@@ -1,4 +1,4 @@
-import { supabase } from "../../supabaseClient";
+import { supabase } from "../../supabaseClient.ts";
 
 export async function registerUser (req: Request): Promise<Response> {
     try{
@@ -89,7 +89,7 @@ export async function registerUser (req: Request): Promise<Response> {
         if (err instanceof Error) {
             message = err.message;
         }
-        
+
         return new Response(
             JSON.stringify({
                 success: false,
