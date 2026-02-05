@@ -5,7 +5,8 @@ type UserUpdate = Partial <
     Pick<User, "name" | "surname" | "phone" | 'username' | 'userState'>
 >;
 
-export async function updateUser(userId: string, updateFields: UserUpdate) {
+//  Obtenir l'utilisateur
+export async function getUser(userId: string, updateFields: UserUpdate) {
     const { data, error } = await supabase
         .from("users")
         .update(updateFields)

@@ -36,7 +36,8 @@ export async function registerUser (req: Request): Promise<Response> {
         const { data: authData, error: authError } = await supabase.auth.admin.createUser({
             email: email,
             password: password,
-            email_confirm: true
+            //  L'utilisateur doit confirmer par l'email
+            email_confirm: false
         });
 
         if(authError) {

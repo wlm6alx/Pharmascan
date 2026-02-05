@@ -12,8 +12,9 @@ export async function createAdmin(email: string, password: string) {
 
     //  Créer admin via Supabase Auth
     const { data, error } = await supabase.auth.admin.createUser({
-        email,
-        password,
+        email: email,
+        password: password,
+        //  Compte imédiatement actif sans besoin de validation depuis l'email.
         email_confirm: true
     });
 
