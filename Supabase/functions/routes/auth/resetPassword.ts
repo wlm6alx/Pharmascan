@@ -14,7 +14,7 @@ export async function resetPassword(req: Request): Promise<Response> {
         const redirectUrl = 
             lastPage || "https://pharmascan.app/dashboard";
 
-        const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
             redirectTo: redirectUrl
         });
 

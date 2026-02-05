@@ -1,10 +1,10 @@
-import { serve } from "https://deno.land/std@0.95.0/http/server.ts";
+//  import { serve } from "https://deno.land/std@0.95.0/http/server.ts";
 import { registerUser } from "./routes/auth/registerUser.ts";
 import { loginUser } from "./routes/auth/loginUser.ts";
 import { resetPassword } from "./routes/auth/resetPassword.ts";
 import { updatePassword } from "./routes/auth/updatePassword.ts";
 
-serve(async (req: Request) => {
+Deno.serve((req: Request) => {
     const url = new URL(req.url);
     const { pathname } = new URL(req.url);
 

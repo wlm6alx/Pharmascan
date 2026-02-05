@@ -1,8 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 //  Variables d'environnement sécurisées du côté back-end
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 //  Création du client Supabase
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);

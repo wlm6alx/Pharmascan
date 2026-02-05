@@ -1,4 +1,4 @@
-import { supabase } from "../../supabaseClient";
+import { supabase } from "../../supabaseClient.ts";
 
 export async function registerUser (req: Request): Promise<Response> {
     try{
@@ -36,7 +36,8 @@ export async function registerUser (req: Request): Promise<Response> {
         const { data: authData, error: authError } = await supabase.auth.admin.createUser({
             email: email,
             password: password,
-            email_confirm: true
+            //  L'utilisateur doit confirmer par l'email
+            email_confirm: false
         });
 
         if(authError) {
@@ -89,7 +90,7 @@ export async function registerUser (req: Request): Promise<Response> {
         if (err instanceof Error) {
             message = err.message;
         }
-        
+
         return new Response(
             JSON.stringify({
                 success: false,
