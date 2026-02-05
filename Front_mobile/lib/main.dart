@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:pharmascan/Pages/PageInscription.dart';
+//import 'package:pharmascan/Pages/PageInscription.dart';
+//import 'package:pharmascan/Pages/pagesConnexion.dart';
+import 'package:pharmascan/Pages/SplashScreen.dart';
 //import'package:pharmascan/Pages/homepage.dart';
 import 'package:device_preview/device_preview.dart';
 void main() {
@@ -17,10 +19,11 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-        useInheritedMediaQuery: true,
+      debugShowCheckedModeBanner: false,
+      useInheritedMediaQuery: true,
         builder: DevicePreview.appBuilder,
         locale: DevicePreview.locale(context),
-      home: PageInscription(),
+      home: SplashScreen(),
     );
   }
 }

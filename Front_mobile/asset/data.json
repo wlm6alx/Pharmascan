@@ -1,0 +1,15 @@
+[
+  {
+    "id": 1,
+    "nom": "Paracétamol",
+    "statut": "Authentique",
+    "description": "Antidouleur et antipyrétique"
+  },
+  {
+    "id": 2,
+    "nom": "Amoxicilline",
+    "statut": "Douteux",
+    "description": "Antibiotique"
+  }
+
+]
