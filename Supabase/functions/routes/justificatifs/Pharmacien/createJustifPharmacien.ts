@@ -86,7 +86,7 @@ import { supabase } from "../../../supabaseClient.ts";
 /**
  * Création d'un justificatif pharmacien
  *  - Upload du document dans Supabase Storage privé
- *  - Insertion des métadonnées dans la table justif_pgarmacien
+ *  - Insertion des métadonnées dans la table justif_pharmacien
  */
 export async function createJustifPharmacien(document: string, username: string): Promise<Response> {
     try {
@@ -138,13 +138,14 @@ export async function createJustifPharmacien(document: string, username: string)
             );
         }
 
-        //  3. insérer la ligne dans la table justif_pharmacien
+        //  4. insérer la ligne dans la table justif_pharmacien
         const { data, error: insertError } = await supabase
             .from("justif_pharmacien")
             .insert({
                 user_id: authUser.id,
                 document_path: file,
-                create_at: new Date().toISOString()
+                create_at: new Date().toISOString(),
+                update_at: new Date().toISOString()
             })
             .select()
             .single();

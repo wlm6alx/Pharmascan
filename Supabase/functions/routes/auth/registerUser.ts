@@ -1,103 +1,30 @@
-import { supabase } from "../../supabaseClient.ts";
+/**
+ * =============================================================================
+ * routes/auth/registerUser.ts  -   POST /auth/register
+ * =============================================================================
+ * 
+ * Créer un compte utilisateur en 2 étapes atomiques:
+ *  1 - Création dans auth.users via supabase.auth.admin.createUser()
+ *  2 - Insertion du profil dans public.users (rôle patient par défaut)
+ * 
+ * Si l'étape 2 échoue, le compte auth est supprimé (rollback manuel)
+ * Pour éviter les comptes orphelins (auth.users sans public.users).
+ * 
+ * BODY JSON:
+ *      name            string requis
+ *      surname         string optionnel
+ *      username        string requis, >= 3 chars, unique
+ *      email           string requis, format email valide
+ *      password        string requis >= 12 chars, maj+min+chiffre+special
+ *      phone           string optionnel, format +XXXXX
+ *      role            string optionnel, 'admin'| 'pharmacien' | 'patient' | 'user'
+ * 
+ * ACCES : Public - L'appelant ne doit pas être connecté.
+ * =============================================================================
+ */
 
-export async function registerUser (req: Request): Promise<Response> {
-    try{
-        const { name, surname, phone, username, email, password, role, userState } = await req.json();
+import { getAdminClient }                               from "@/supabaseAdminClient.ts";
+import { extractToken, successResponse, errorResponse}  from "@/middleware/auth.ts";
+import { supabase }                                     from "@/supabaseClient.ts";
 
-        //  1. Vérification unicité username
-        const { data: existingUser, error: checkError } = await supabase
-        .from("users")
-        .select("id")
-        .eq("username", username)
-        .maybeSingle();
-
-        if (checkError) {
-            return new Response(
-                JSON.stringify({
-                    success: false,
-                    step: "check_username",
-                    error: checkError.message
-                }),
-                {status: 500}
-            );
-        }
-
-        if(existingUser) {
-            return new Response(
-                JSON.stringify({
-                    success: false,
-                    error: "Username déjà utilisé"
-                }),
-                {status: 409}
-            );
-        }
-
-        //  2. Création de Supabase Auth
-        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-            email: email,
-            password: password,
-            //  L'utilisateur doit confirmer par l'email
-            email_confirm: false
-        });
-
-        if(authError) {
-            return new Response(
-                JSON.stringify({
-                    success: false,
-                    step: "auth",
-                    error: authError.message
-                }),
-                {status: 400}
-            );
-        }
-
-        //  3. Insertion profil public
-        const { error: insertError } = await supabase
-            .from("users")
-            .insert({
-            id: authData.user.id,
-            name: name,
-            surname: surname,
-            phone: phone,
-            username: username,
-            email: email,
-            role: role ?? "patient",
-            userState: userState ?? true
-        });
-
-        if (insertError) {
-            return new Response(
-                JSON.stringify({
-                    success: false,
-                    step: "db",
-                    error: insertError.message
-                }),
-                {status: 500}
-            );
-        }
-
-        //  Réponse finale
-        return new Response(
-            JSON.stringify({
-                success:true,
-                userId: authData.user.id
-            }),
-            { status: 201 }
-        );
-    } catch (err: unknown) {
-        let message = "Unknown error";
-
-        if (err instanceof Error) {
-            message = err.message;
-        }
-
-        return new Response(
-            JSON.stringify({
-                success: false,
-                step: "global",
-                error: message
-            }),
-            {status: 500}
-        );
-    }
-};
+//  
