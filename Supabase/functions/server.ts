@@ -5,9 +5,8 @@
  * 
  * Rôle:
  *  Ce fichier est le seul point d'entrée de l'application vers la base de données.
- *  Il reçoit toutes de requêtes HTTP et les redirige vers le handler
- * (bonne destination de la base de donnée) appropriée selon la méthode HTTP et
- *  le chemin (pathname).
+ *  Il reçoit toutes de requêtes HTTP et les redirige vers le handler (bonne destination de la base de donnée) appropriée 
+ *  selon la méthode HTTP et le chemin (pathname).
  * 
  * ARCHITECTURE GENERALE:
  * 
@@ -42,13 +41,16 @@
  *          - Aucun client (même authentifié) ne peut lire ou écrire directement sur 
  *            cette table. Seules les fonctions SQL SECURITY DEFINER y accèdent.
  *          - L'INSERT direct dans QR_Code depuis le code TypeScript est impossible.
- *            Le QR Code doit être créé AVANT d'appeler create_medicament(), via une
+ *            Le QR Code doit être créé APRES create_medicament(), via une
  *            fonction SQL dédiée ou une route d'administration séparée.
  * 
  *      medicament:
  *          - SECURITY DEFINER : La vérification d'autorisation est faite en SQL. Tout
- *            pharmacien (même sans pharmacie assignée) OU admin peut créer. La route
+ *            pharmacien (même avec pharmacie assignée) OU admin peut créer. La route
  *            POST /admin/medicaments appelle cette fonction via .rpc(). 
+ *          - visibility démarre à false. Elle passe à true dès qu'il y'a au moins un
+ *             qr_code lié à ce dernier et repasse à true si tous ces qr_code sont 
+ *             supprimés.
  * 
  *          - Prend le PATH du QR Code (texte, pas l'UUID) et retourne :
  *              { is_valid, name, categorie, fabrication_date, expiration_date }
@@ -58,11 +60,12 @@
  *              Tout pharmacien (sans condition d'affiliation) OU admin.
  * 
  * 
- *  LISTE COMPLETE DES ROUTES (39 endpoints):
+ *  LISTE COMPLETE DES ROUTES (41 endpoints):
  * 
  *  --- Authentiication ---------------------------------------------------------------------------------------------
  *      POST    /auth/register          Inscription user (par défaut patient)
  *      POST    /auth/login             Connexion username + password
+ *      POST    /auth/logout            Déconnexion + userState -> false (vérifie userState = false)
  *      POST    /auth/reset-password    Demande de reset le password par email
  *      POST    /auth/update-password   Mise à jour du mot de passe
  * 
@@ -111,8 +114,10 @@
  *      GET     /medicaments/detail         Détails d'un médicament
  *      GET     /medicaments/scan           Scanner un QR code / Vérifier un médicament par chemin QR()
  *                                          (?qr_path=<texte>) via verify_medicament_by_QR()
- *      POST    /admin/medicaments          Créer un médicament via create_medicament() (type de médicament) ou via create_qr_code() (medicament individuel appartenant à la table medicament)
- *                                          (admin et pharmaciens dans une pharmacie)
+ *      POST    /admin/medicaments          Créer un médicament générique -> create_medicament()
+ *                                          (admin et pharmaciens affilié à une pharmacie)
+ *      POST    /admin/medicaments/qr       Créer une boîte / unité physique -> create_qr_code()
+ *                                          (pharmacien affilié ou admin)    
  *      PUT     /admin/medicaments          Modifier un médicament (admin et pharmaciens dans une pharmacie)
  * 
  *  --- Stocks ------------------------------------------------------------------------------------------------------
@@ -139,6 +144,7 @@ import { registerUser }                         from "@/routes/auth/registerUser
 import { loginUser }                            from "@/routes/auth/loginUser.ts";
 import { resetPassword }                        from "@/routes/auth/resetPassword.ts";
 import { updatePassword }                       from "@/routes/auth/updatePassword.ts";
+import { logoutUser }                           from "@/routes/auth/logoutUser.ts";
 
 //  ------------ Imports des handlers - Utilisateurs ----------------------------------------------------------------
 import { getUser }                              from "@/routes/users/getUser.ts";
@@ -149,7 +155,7 @@ import { createPharmacien }                     from "@/routes/users/createPharm
 //  ----------- Imports des handlers - Administration des utilisateurs ----------------------------------------------
 import { createAdmin }                          from "@/routes/users/createAdmin.ts";
 import { resetAdmin }                           from "@/routes/users/resetAdmin.ts";
-import { tooggleUserState }                     from "@/routes/users/toogleUserState.ts";
+import { toogleUserState }                      from "@/routes/users/toogleUserState.ts";
 
 //  ------------- Imports des handlers - Justiicatis pharmacien -----------------------------------------------------
 import { createJustifPharmacien }               from "@/routes/justificatifs/Pharmacien/createJustifPharmacien.ts"; 
@@ -181,14 +187,14 @@ import {
     joinPharmacie,
     resignPharmacie,
     removeMember,
-}                                               from "@/routes/pharmacie/joinPharmacie.ts";
+}                                               from "@/routes/pharmacie/pharmacieJoin.ts";
 
 //  ---------- imports des handlers - Medicaments -------------------------------------------------------------------
-import { listMedicament }                       from "@/routes/medicaments/listMedicaments.ts";
+import { listMedicaments }                       from "@/routes/medicaments/listMedicaments.ts";
 import { getMedicament, scanQRCode }            from "@/routes/medicaments/getMedicament.ts";
 import {
-    createMedicament
-    createMedicamentType,
+    createMedicament,
+    createQRCode,
     updateMedicament,
 }                                               from "@/routes/medicaments/medicamentsAdmin.ts";
 
@@ -235,7 +241,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     //  CORS permet au navigateur de procéder
     //
     //  WARNING: Doit être la PREMIERE vérification - avant tout autre traitement.
-    if (method == "OPTIONS")
+    if (method === "OPTIONS")
         return corsPreflightResponse();
 
     //  --  Logging de la requête (développement uniquement) --------------------------------------------------------
@@ -268,20 +274,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
             if (method !== "POST")      return methodNotAllowed(method, pathname);
             return await registerUser(req);
         }
+
         else if (pathname === "/auth/login") {
             //  POST uniquement - connexion avec username + password
             if (method !== "POST")      return methodNotAllowed(method, pathname);
             return await loginUser(req);
         }
+
         else if (pathname === "/auth/reset-password") {
             //  POST uniquement - demande de réinitialisation par email
             if (method !== "POST")      return methodNotAllowed(method, pathname);
             return await resetPassword(req);
         }
+
         else if (pathname === "/auth/update-password") {
             //  POST uniquement - mise à jour du mot de passe (avec token ou JWT)
             if (method !== "POST")      return methodNotAllowed(method, pathname);
             return await updatePassword(req);
+        }
+
+        else if (pathname === "/auth/logout") {
+            //  POST uniquement - déconnexion + userState -> false
+            if (method !== "POST") return methodNotAllowed(method, pathname);
+            return await logoutUser(req);
         }
 
         //  ---------------------------------------------------------------------------------------------------------
@@ -306,7 +321,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
             return await createPatient(req);
         }
 
-        else if (pathname === "/uses/pharmacien") {
+        else if (pathname === "/users/pharmacien") {
             //  POST uniquement - création du profil pharmacien
             if (method !== "POST")      return methodNotAllowed(method, pathname);
             return await createPharmacien(req);
@@ -331,7 +346,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         else if (pathname === "/admin/user/state") {
             //  PUT uniquement - Activer ou desactuver un compte utilisateur
             if (method !== "PUT")       return methodNotAllowed(method, pathname);
-            return await tooggleUserState(req);
+            return await toogleUserState(req);
         }
 
         //  ---------------------------------------------------------------------------------------------------------
@@ -351,58 +366,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         else if (pathname === "/justificatifs/pharmacie") {
             if (method === "POST")      return await createJustifPharmacie(req);
-            if (method === "GET")       return await listPharmacies(req);
-            if (method === "PUT")       return await updatePharmacie(req);
+            if (method === "PUT")       return await updateJustifPharmacie(req);
+            if (method === "DELETE")    return await deleteJustifPharmacie(req);
             return methodNotAllowed(method, pathname);
         }
 
         //  ---------------------------------------------------------------------------------------------------------
-        //  BLOC 6 -   Pharmacies (CRUD)
-        //  ---------------------------------------------------------------------------------------------------------
-
-        else if (pathname === "/pharmacie") {
-            if (method === "POST")      return await createPharmacie(req);
-            if (method === "GET")       return await listPharmacies(req);
-            if (method === "PUT")       return await updatePharmacie(req);
-            return await methodNotAllowed(method, pathname);
-        }
-
-        else if (pathname === "/pharmacie/detail") {
-            //  GET uniquement - Détails d'une pharmacie spécifique
-            if (method !== "GET")       return methodNotAllowed(method, pathname);
-            return await getPharmacie(req);
-        }
-
-        else if (pathname === "/pharmacie/status") {
-            //  PATCH uniquement - Changer le statut open/close
-            if (method !== "PATCH")     return methodNotAllowed(method, pathname);
-            return await updateStatusPharmacie(req);
-        }
-
-        //  ---------------------------------------------------------------------------------------------------------
-        //  BLOC 7  -   Administration des pharamcies
-        //  ---------------------------------------------------------------------------------------------------------
-
-        else if (pathname === "/admin/pharmacie/validate") {
-            //  POST uniquement - Valider une pharmacie en attente
-            if (method !== "POST")      return methodNotAllowed(method, pathname);
-            return await adminValidatePharmacie(req);
-        }
-
-        else if (pathname === "/admin/pharmacie/refuse") {
-            //  POST uniquement - Refuser une pharmacei en attente
-            if (method !== "POST")      return methodNotAllowed(method, pathname);
-            return await adminRefusePharmacie(req);
-        }
-
-        else if (pathname === "/admin/pharmacie") {
-            //  DELETE uniquement - Desactiver une pharmacie existente
-            if (method !== "DELETE")    return methodNotAllowed(method, pathname);
-            return await adminDeletePharmacie(req);
-        }
-
-        //  ---------------------------------------------------------------------------------------------------------
-        //  BLOC 8 -    Gestion des membres d'une pharmacie
+        //  BLOC 6 -    Gestion des membres d'une pharmacie
         //  ---------------------------------------------------------------------------------------------------------
 
         else if (pathname === "/pharmacie/join-key") {
@@ -430,14 +400,53 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
 
         //  ---------------------------------------------------------------------------------------------------------
-        //  BLOC 9 -    Médicaments
+        //  BLOC 7  -   Administration des pharamcies
         //  ---------------------------------------------------------------------------------------------------------
 
-        else if (pathname === "/medicaments") {
-            //  GET uniquement - Liste publique des médicaments visibles
-            if (method !== "GET")       return methodNotAllowed(method, pathname);
-            return await listMedicament(req);
+        else if (pathname === "/admin/pharmacie/validate") {
+            //  POST uniquement - Valider une pharmacie en attente
+            if (method !== "POST")      return methodNotAllowed(method, pathname);
+            return await adminValidatePharmacie(req);
         }
+
+        else if (pathname === "/admin/pharmacie/refuse") {
+            //  POST uniquement - Refuser une pharmacei en attente
+            if (method !== "POST")      return methodNotAllowed(method, pathname);
+            return await adminRefusePharmacie(req);
+        }
+
+        else if (pathname === "/admin/pharmacie") {
+            //  DELETE uniquement - Desactiver une pharmacie existente
+            if (method !== "DELETE")    return methodNotAllowed(method, pathname);
+            return await adminDeletePharmacie(req);
+        }
+
+        //  ---------------------------------------------------------------------------------------------------------
+        //  BLOC 8 -   Pharmacies (CRUD)
+        //  ---------------------------------------------------------------------------------------------------------
+
+        else if (pathname === "/pharmacie/detail") {
+            //  GET uniquement - Détails d'une pharmacie spécifique
+            if (method !== "GET")       return methodNotAllowed(method, pathname);
+            return await getPharmacie(req);
+        }
+
+        else if (pathname === "/pharmacie/status") {
+            //  PATCH uniquement - Changer le statut open/close
+            if (method !== "PATCH")     return methodNotAllowed(method, pathname);
+            return await updateStatusPharmacie(req);
+        }
+
+        else if (pathname === "/pharmacie") {
+            if (method === "POST")      return await createPharmacie(req);
+            if (method === "GET")       return await listPharmacies(req);
+            if (method === "PUT")       return await updatePharmacie(req);
+            return methodNotAllowed(method, pathname);
+        }
+
+        //  ---------------------------------------------------------------------------------------------------------
+        //  BLOC 9 -    Médicaments
+        //  ---------------------------------------------------------------------------------------------------------
 
         else if (pathname === "/medicaments/detail") {
             //  GET uniquement - Détail d'un médicament par 
@@ -451,13 +460,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
             return await scanQRCode(req);
         }
 
+        else if (pathname === "/medicaments") {
+            //  GET uniquement - Liste publique des médicaments visibles
+            if (method !== "GET")       return methodNotAllowed(method, pathname);
+            return await listMedicaments(req);
+        }
+
         //  ---------------------------------------------------------------------------------------------------------
         //  BLOC 10 -   Administration des médicaments
         //  ---------------------------------------------------------------------------------------------------------
 
+        else if (pathname === "/admin/medicaments/qr") {
+            //  POST uniquement - Créer un médicament existant
+            if (method !== "POST") return methodNotAllowed(method, pathname);
+            return await createQRCode(req);
+        }
+
         else if (pathname === "/admin/medicaments") {
             if (method === "POST")      return await createMedicament(req);
-            if (method === "POST")      return await createMedicamentType(req);
             if (method === "PUT")       return await updateMedicament(req);
             return methodNotAllowed(method, pathname);
         }
@@ -477,16 +497,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
         //  BLOC 12 -   Patients
         //  ---------------------------------------------------------------------------------------------------------
 
-        else if (pathname === "/patients/me") {
-            if (method === "GET")       return await getPatient(req);
-            if (method === "PUT")       return await updatePatient(req);
-            return methodNotAllowed(method, pathname);
-        }
-
         else if (pathname === "/patients/private") {
             //  PUT uniquement - Modifier les données privées du patient
             if (method !== "PUT")       return methodNotAllowed(method, pathname);
             return await updatePatientPrivate(req);
+        }
+
+        else if (pathname === "/patients/me") {
+            if (method === "GET")       return await getPatient(req);
+            if (method === "PUT")       return await updatePatient(req);
+            return methodNotAllowed(method, pathname);
         }
 
         //  ---------------------------------------------------------------------------------------------------------
@@ -536,7 +556,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
  * @param pathname Chemin demandé (ur le message d'erreur).
  */
 function methodNotAllowed(method: string, pathname: string): Response {
-    return new errorResponse(
+    return errorResponse(
         `Méthode ${method} non autorisée sur ${pathname}.`,
         405
     );

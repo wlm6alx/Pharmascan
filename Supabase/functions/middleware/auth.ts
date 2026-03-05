@@ -223,10 +223,10 @@ export async function getAuthenticatedUser(
     //  Aucun uitilsateur n'utlise ce compte (toogleUserState).
     //  Un compte en cours d'utilisation (userState = true) doit d'abord
     //  être déconnecté d'un appareil pour pouvoir se connecter sur un autre
-    if (userProfile.userState) {
+    if (!userProfile.userState) {
         return {
-            error: "Vous êtes connecté sur un autre appareil. Veuillez d'abord vous déconnecter sur cet appareil.",
-            status: 403,
+            error: "Aucune session active. Veuillez d'abord vous connecter.",
+            status: 401,
         };
     }
 
