@@ -26,7 +26,7 @@
  * SECURITE :
  *  -   JWT requis + userState = true (session admin active)
  *  -   requireRole : 'admin' uniquement
- *  -   K'admin ne peut pas se déconnecter lui-même via cette route (utiliser/auth/logout pour ça)
+ *  -   L'admin ne peut pas se déconnecter lui-même via cette route (utiliser/auth/logout pour ça)
  *  
  * BODY JSON ATTENDU    :
  *  userId      string      requis - UUID de l'utilisateur cible
@@ -34,6 +34,11 @@
  * 
  * RESPONSE SUCCES 200  :
  *  { success: true, data: { id, username, userState } }
+ * 
+ * EXPORT INTERNE   :
+ *  setUserStare(userId, state)
+ *      Fonction utilitaire réutilisée par login et logout pour centraliser la mise à jour de
+ *      userState sans dupliquer la logique.
  * 
  * =====================================================================================
  */
@@ -68,8 +73,7 @@ export async function toogleUserState(req: Request): Promise<Response> {
     const user = authResult.user;
 
     // ---  Garde 3 :   Admin uniquement    --------------------------------------------
-    const denied = requireRole(user, ["admin"]);
-    if (denied) return denied;
+    if (!requireRole(user, ["admin"])) return errorResponse("Accès réservé à l'administrateur.", 403);
 
     // ---  Etape 1 :   Lectuer et validation du body JSON  ----------------------------
     let body: Record<string, unknown>;
@@ -142,4 +146,35 @@ export async function toogleUserState(req: Request): Promise<Response> {
         : `Session de ${targetUser.username} libérée - reconnexion possible`;
 
     return successResponse(updated, message, 200);
+}
+
+// =====================================================================================
+//  Utilitaire interne exporté
+// =====================================================================================
+
+export async function setUserState(
+    userId: string,
+    state: boolean
+): Promise<{ success: boolean }> {
+    try{
+        //  Client admin - userState n'est pas modifiable via RLS utilisateur
+        //  Cette mise à jour est une opération système, pas une action utilisateur
+        const adminResult = getAdminClient(getAdminSecret(), "admin");
+        if ("error" in adminResult) return { success: false };
+
+        const { error } = await adminResult.client
+            .from("users")
+            .update({ setUserState: state })
+            .eq("id", userId);
+
+        if (error) {
+            console.error(`[setUserState] Echec userId=${userId} state=${state}: `, error.message);
+            return { success: false };
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error(`[setUserState] Exception userId=${userId}: `, err);
+        return { success: false };
+    }
 }

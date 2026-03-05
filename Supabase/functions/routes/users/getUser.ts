@@ -15,6 +15,11 @@
  *      Réservé à l'admin (rôle requis : 'admin').
  *      Usage : adminsitration, support, audit.
  * 
+ *      RESTRICTION CONFIDENTIALITE :
+ *          L'admin ne peut consulter via cette route que les profils des pharmaciens.
+ *          Les patients et utilisateurs simples ne sont pas accessibles - leurs données sont confidentielles
+ *          et l'admin n'a pas de raison métier de les consulter individuellement par username.
+ * 
  * SECURITE :
  *  -   JWT requis dans les deux modes
  *  -   Mode "profile"  :   requireRole(user, ["admin"])    -   403 si non admin
@@ -113,8 +118,9 @@ async function getOwnProfile(token: string, userId: string): Promise<Response> {
 async function getProfileByUsername(req: Request, user: import("@/middleware/auth.ts").AuthenticatedUser): Promise<Response> {
     
     //  Vérification du rôle    -   admin uniquement
-    const denied = requireRole(user, ["admin"]);
-    if (denied) return denied;
+    if (!requireRole(user, ["admin"])) {
+        return errorResponse("Accès réservé à l'administrateur.", 403);
+    }
     
     //  Extraction du paramètre username depuis l'URL
     const url       = new URL(req.url);
@@ -130,10 +136,15 @@ async function getProfileByUsername(req: Request, user: import("@/middleware/aut
         return errorResponse("Erreur de configuration serveru.", 500);
     }
 
+    //  CONFIDENTIALITE :   L'admin ne peut consulte rque les profils de pharmaciens.
+    //  Les patients et utilisateurs simples ne sont pas accessibles via cette route - aucune
+    //  raison métier ne justifie l'accès admin à leurs données personnelles.
+    //  Filtre role='pharmacien' sert à vérifier cette politique de confidentialité côté serveur
     const { data: profile, error } = await adminResult.client
         .from("users")
         .select("id, name, surname, phone, username, email, role, userState, created_at")
         .eq("username", username)
+        .eq("role", "pharmacien")
         .single();
 
     if (error || !profile) {
