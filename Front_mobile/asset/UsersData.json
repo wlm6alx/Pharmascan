@@ -1,8 +1,15 @@
 [
   {
-    "id":5,
-    "username": "Willem",
+    "id":1,
+    "nomUtilisateur": "Willem",
     "email": "alexwillem30@gmail.com",
     "password": "123456"
+  },
+
+  {
+    "id":2,
+    "nomUtilisateur": "John",
+    "email": "john.doe@example.com",
+    "password": "AlexDsi"
   }
 ]

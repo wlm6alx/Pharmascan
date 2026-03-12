@@ -1,15 +1,20 @@
 [
   {
     "id": 1,
-    "nom": "Paracétamol",
-    "statut": "Authentique",
-    "description": "Antidouleur et antipyrétique"
+    "name": "Pharmacie de Yachika",
+    "address": "Face école publique Yachika",
+    "icon": "pharmacy"
   },
   {
     "id": 2,
-    "nom": "Amoxicilline",
-    "statut": "Douteux",
-    "description": "Antibiotique"
+    "name": "Pharmacie Centrale",
+    "address": "Carrefour central",
+    "icon": "pharmacy"
+  },
+    {
+    "id": 3,
+    "name": "Pharmacie de gaulle",
+    "address": "bonapriso",
+    "icon": "pharmacy"
   }
-
 ]
