@@ -1,9 +1,188 @@
 import 'package:flutter/material.dart';
-class Home extends StatelessWidget {
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
+import 'dart:async';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+class Home extends StatefulWidget {
   const Home({super.key});
 
   @override
+  State<Home> createState() => _HomeState();
+}
+
+class _HomeState extends State<Home> {
+  LatLng? _currentPosition;
+  final MapController _mapController = MapController();
+  Timer? _retryTimer;
+  bool _chargement = true;
+  String _statutLocalisation = "Vérification de la localisation en cours...";
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_){
+      _getUserLocation();
+    });
+  }
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleRetry(String message) {
+    setState(() {
+      _chargement = false;
+      _statutLocalisation = message;
+    });
+
+    _retryTimer?.cancel();
+
+    _retryTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _getUserLocation();
+    });
+  }
+
+  Future<void> _getUserLocation() async {
+    setState(() {
+      _chargement = true;
+      _statutLocalisation = "Vérification de la localisation...";
+    });
+
+    bool serviceDisponible = await Geolocator.isLocationServiceEnabled();
+    if (!serviceDisponible) {
+      _scheduleRetry("Le GPS est désactivé.\nActivez-le pour utiliser la carte.");
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        _scheduleRetry("Permission refusée.\nNous réessayerons dans 1 minute.");
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      _scheduleRetry("Permission bloquée.\nActivez la localisation dans les paramètres.");
+      return;
+    }
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      _retryTimer?.cancel();
+
+      setState(() {
+        _currentPosition = LatLng(position.latitude, position.longitude);
+        _chargement = false;
+      });
+
+      // 👇 Déplace la carte après que le widget soit reconstruit
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(_currentPosition!, 15.0);
+      });
+
+    } catch (e) {
+      _scheduleRetry("Erreur de localisation.\nNous réessayerons dans 1 minute.");
+    }
+  }
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(appBar: AppBar(title: Text("Home")));
+    // ✅ Tout le build est bien dans la méthode
+    if (_currentPosition == null) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.location_off,
+                size: 80,
+                color: Color(0xFF1193AB),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                _statutLocalisation,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 30),
+              if (_chargement)
+                const CircularProgressIndicator(
+                  color: Color(0xFF1193AB),
+                )
+              else
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1193AB),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                  ),
+                  onPressed: _getUserLocation,
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  label: const Text(
+                    "Réessayer maintenant",
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ✅ Le return FlutterMap est bien dans build()
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: _currentPosition!,
+        initialZoom: 12.2,
+        keepAlive: true,
+        minZoom: 9,
+        interactionOptions: InteractionOptions(
+          flags: ~InteractiveFlag.doubleTapZoom &
+          InteractiveFlag.flingAnimation,
+          cursorKeyboardRotationOptions:
+          CursorKeyboardRotationOptions.disabled(),
+        ),
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: dotenv.env['MAP_TILE_URL'] ?? '',
+          maxNativeZoom: 19,
+          userAgentPackageName: dotenv.env['USER_AGENT'] ?? 'com.pharmascan',
+        ),
+        MarkerLayer(
+          markers: [
+            Marker(
+              point: _currentPosition!,
+              width: 40,
+              height: 40,
+              child: const Icon(
+                Icons.location_pin,
+                color: Colors.red,
+                size: 40,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }

@@ -11,20 +11,23 @@ class PagesConnexion extends StatefulWidget {
 
 class _PagesConnexionState extends State<PagesConnexion> {
   bool mdpCache = true;
-  final TextEditingController nomUtilisateurController =
-      TextEditingController();
+  //Initialisation des controleurs pour récuperer le contenu des champs
+  final TextEditingController nomUtilisateurController = TextEditingController();
   final TextEditingController motDePasseController = TextEditingController();
 
   @override
   void dispose() {
-    // Toujours libérer les contrôleurs
+    // fonction permettant de libérer les controlleurs après utilisation
     nomUtilisateurController.dispose();
     motDePasseController.dispose();
     super.dispose();
   }
 
   Widget build(BuildContext context) {
+    // Variable couleurs pour la couleur des boutons et des contours des champs de la page de connexion
     final primaryColor = const Color(0xFF1193AB);
+
+    //construction du widget de connexion
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -60,15 +63,14 @@ class _PagesConnexionState extends State<PagesConnexion> {
             const SizedBox(height: 30),
 
             // Champ Nom d’utilisateur
-            // Champ Email
             TextFormField(
               controller: nomUtilisateurController,
               decoration: InputDecoration(
                 hintText: "Nom d'utilisateur",
-                hintStyle: const TextStyle(color: Colors.black26),
+                hintStyle: const TextStyle(color: Colors.black26), //couleur du texte en background indiquant les éléments à remplir par l'utilisateur
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF1193AB)),
+                  borderSide: const BorderSide(color: Color(0xFF1193AB)), //Couleur des borders
                 ),
               ),
             ),
@@ -76,7 +78,7 @@ class _PagesConnexionState extends State<PagesConnexion> {
             // Champ Mot de passe
             TextFormField(
               controller: motDePasseController,
-              obscureText: mdpCache, // utilise ton booléen
+              obscureText: mdpCache, // utilise le booléen pour déterminer quand est ce que le bouton permettant de cache le mdp est activé ou pas
               decoration: InputDecoration(
                 hintText: "Mot de passe",
                 hintStyle: const TextStyle(color: Colors.black26),
@@ -129,10 +131,10 @@ class _PagesConnexionState extends State<PagesConnexion> {
                   Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(builder: (context) => const MainNavigation()),
-                        (route) => false, // 👈 efface tout l'historique de navigation
+                        (route) => false, // efface tout l'historique de navigation pour repartir de zéro
                   );
                 } else {
-                  //Message d'erreur
+                  //Message d'erreur en cas d'echec  de connexion 
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text("Username ou mot de passe incorrect!!"),
@@ -150,7 +152,7 @@ class _PagesConnexionState extends State<PagesConnexion> {
             // Lien mot de passe oublié
             TextButton(
               onPressed: () {
-                // logique mot de passe oublié
+                // logique mot de passe oublié à remplacer par le code de Nathan
               },
               child: const Text(
                 "Mot de passe oublié ?",
