@@ -1,7 +1,12 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase, isDemoMode } from '../lib/supabase'
+import {
+  isPharmacyOpenForDisplay,
+  PHARMACY_PROFILE_UPDATED_EVENT,
+  resolvePharmacyForPharmacist,
+} from '../lib/pharmacyHelpers'
 import { mockStorage } from '../lib/mockData'
 import { Bell, User, LogOut, Menu, X, Home, Pill, Building2, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import PharmaScanLogo from './PharmaScanLogo'
@@ -11,10 +16,15 @@ export default function Layout({ children }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [pharmacyStatus, setPharmacyStatus] = useState(false)
+  /** pending | approved | rejected — l’ouverture n’est autorisée qu’après validation admin */
+  const [pharmacyValidationStatus, setPharmacyValidationStatus] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  /** Photo affichée à la place de l’icône profil (barre du haut) */
+  const [pharmacyPhotoUrl, setPharmacyPhotoUrl] = useState(null)
+  const [profilePhotoLoadFailed, setProfilePhotoLoadFailed] = useState(false)
 
   useEffect(() => {
     // Charger le statut de la pharmacie
@@ -33,6 +43,10 @@ export default function Layout({ children }) {
   }, [user])
 
   useEffect(() => {
+    setProfilePhotoLoadFailed(false)
+  }, [pharmacyPhotoUrl])
+
+  useEffect(() => {
     // Gérer l'effet de scroll
     const handleScroll = () => {
       const scrollPosition = window.scrollY
@@ -46,23 +60,31 @@ export default function Layout({ children }) {
   const fetchPharmacyStatus = async () => {
     try {
       if (isDemoMode) {
-        // Mode démo : utiliser mockStorage
         const pharmacy = mockStorage.pharmacy
-        setPharmacyStatus(pharmacy?.status === 'open' || pharmacy?.is_on_duty || false)
+        setPharmacyStatus(isPharmacyOpenForDisplay(pharmacy))
+        setPharmacyValidationStatus(pharmacy?.status ?? 'approved')
+        setPharmacyPhotoUrl(pharmacy?.photo_url?.trim() || null)
       } else {
-        // Mode production : utiliser Supabase
         const { data: pharmacist } = await supabase
           .from('pharmacists')
-          .select('*, pharmacies(*)')
+          .select('id, pharmacy_id')
           .eq('user_id', user?.id)
-          .single()
+          .maybeSingle()
 
-        if (pharmacist?.pharmacies) {
-          setPharmacyStatus(pharmacist.pharmacies.status === 'open')
+        const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
+        if (pharmacy) {
+          setPharmacyStatus(isPharmacyOpenForDisplay(pharmacy))
+          setPharmacyValidationStatus(pharmacy.status ?? null)
+          setPharmacyPhotoUrl(pharmacy.photo_url?.trim() || null)
+        } else {
+          setPharmacyStatus(false)
+          setPharmacyValidationStatus(null)
+          setPharmacyPhotoUrl(null)
         }
       }
     } catch (error) {
       console.error('Erreur:', error)
+      setPharmacyPhotoUrl(null)
     }
   }
 
@@ -76,20 +98,23 @@ export default function Layout({ children }) {
         // Mode production : utiliser Supabase
         const { data: pharmacist } = await supabase
           .from('pharmacists')
-          .select('pharmacy_id')
+          .select('id, pharmacy_id')
           .eq('user_id', user?.id)
-          .single()
+          .maybeSingle()
 
-        if (pharmacist?.pharmacy_id) {
+        const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
+        if (pharmacy?.id) {
           const { data, error } = await supabase
             .from('notifications')
             .select('id')
-            .eq('pharmacy_id', pharmacist.pharmacy_id)
+            .eq('pharmacy_id', pharmacy.id)
             .eq('read', false)
 
           if (!error) {
             setUnreadCount(data?.length || 0)
           }
+        } else {
+          setUnreadCount(0)
         }
       }
     } catch (error) {
@@ -97,13 +122,66 @@ export default function Layout({ children }) {
     }
   }
 
+  const fetchPharmacyStatusRef = useRef(fetchPharmacyStatus)
+  fetchPharmacyStatusRef.current = fetchPharmacyStatus
+  const fetchUnreadNotificationsRef = useRef(fetchUnreadNotifications)
+  fetchUnreadNotificationsRef.current = fetchUnreadNotifications
+
+  useEffect(() => {
+    const onProfileUpdated = () => {
+      fetchPharmacyStatusRef.current()
+      fetchUnreadNotificationsRef.current()
+    }
+    window.addEventListener(PHARMACY_PROFILE_UPDATED_EVENT, onProfileUpdated)
+    return () => window.removeEventListener(PHARMACY_PROFILE_UPDATED_EVENT, onProfileUpdated)
+  }, [])
+
+  const canToggleOperational =
+    isDemoMode || pharmacyValidationStatus === 'approved'
+
+  /** Tant que la pharmacie n’est pas approuvée, on n’affiche pas ouvert/fermé issu de la BDD (souvent trompeur). */
+  const operationalDisplay = (() => {
+    if (canToggleOperational) {
+      return {
+        line: pharmacyStatus ? '● Ouvert' : '● Fermé',
+        lineClass: pharmacyStatus ? 'text-green-600' : 'text-red-500',
+        switchOn: pharmacyStatus,
+      }
+    }
+    if (pharmacyValidationStatus === 'pending') {
+      return {
+        line: '● En attente de validation',
+        lineClass: 'text-amber-700',
+        switchOn: false,
+      }
+    }
+    if (pharmacyValidationStatus === 'rejected') {
+      return {
+        line: '● Non validée',
+        lineClass: 'text-red-600',
+        switchOn: false,
+      }
+    }
+    return {
+      line: '● —',
+      lineClass: 'text-gray-500',
+      switchOn: false,
+    }
+  })()
+
   const togglePharmacyStatus = async () => {
+    if (!canToggleOperational) {
+      alert(
+        'Tant que votre pharmacie n’est pas validée par un administrateur, vous ne pouvez pas indiquer le statut d’ouverture.'
+      )
+      return
+    }
     try {
       if (isDemoMode) {
         // Mode démo : mettre à jour mockStorage
         const newStatus = !pharmacyStatus
         if (mockStorage.pharmacy) {
-          mockStorage.pharmacy.status = newStatus ? 'open' : 'closed'
+          mockStorage.pharmacy.operational_status = newStatus ? 'open' : 'closed'
           mockStorage.pharmacy.is_on_duty = newStatus
         }
         setPharmacyStatus(newStatus)
@@ -111,18 +189,24 @@ export default function Layout({ children }) {
         // Mode production : utiliser Supabase
         const { data: pharmacist } = await supabase
           .from('pharmacists')
-          .select('pharmacy_id')
+          .select('id, pharmacy_id')
           .eq('user_id', user?.id)
-          .single()
+          .maybeSingle()
 
-        if (pharmacist?.pharmacy_id) {
-          const newStatus = !pharmacyStatus ? 'open' : 'closed'
-          await supabase
+        const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
+        if (pharmacy?.id) {
+          const nextOpen = !pharmacyStatus
+          const { error } = await supabase
             .from('pharmacies')
-            .update({ status: newStatus })
-            .eq('id', pharmacist.pharmacy_id)
+            .update({ operational_status: nextOpen ? 'open' : 'closed' })
+            .eq('id', pharmacy.id)
 
-          setPharmacyStatus(!pharmacyStatus)
+          if (error) {
+            console.error(error)
+            alert('Impossible de mettre à jour le statut : ' + error.message)
+            return
+          }
+          setPharmacyStatus(nextOpen)
         }
       }
     } catch (error) {
@@ -159,11 +243,25 @@ export default function Layout({ children }) {
             )}
             <span className="text-xs text-gray-600 mt-1 lowercase hidden sm:block">notifications</span>
           </Link>
-          <Link to="/profile" className="flex flex-col items-center hover:opacity-80 transition">
-            <div className="w-5 h-5 flex items-center justify-center">
-              <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-              </svg>
+          <Link
+            to="/profile"
+            className="flex flex-col items-center hover:opacity-80 transition"
+            title="Profil"
+          >
+            <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-beige-dark bg-gray-100 flex items-center justify-center shrink-0 shadow-sm">
+              {pharmacyPhotoUrl && !profilePhotoLoadFailed ? (
+                <img
+                  key={pharmacyPhotoUrl}
+                  src={pharmacyPhotoUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  onError={() => setProfilePhotoLoadFailed(true)}
+                />
+              ) : (
+                <User className="h-4 w-4 text-gray-600" aria-hidden />
+              )}
             </div>
             <span className="text-xs text-gray-600 mt-1 lowercase hidden sm:block">profil</span>
           </Link>
@@ -252,24 +350,44 @@ export default function Layout({ children }) {
               <div className="flex items-center justify-between">
                 <div className="flex flex-col">
                   <span className="text-sm font-semibold text-gray-800 mb-1">fermé/ouvert</span>
-                  <span className={`text-xs font-bold ${pharmacyStatus ? 'text-green-600' : 'text-red-500'}`}>
-                    {pharmacyStatus ? '● Ouvert' : '● Fermé'}
+                  <span className={`text-xs font-bold ${operationalDisplay.lineClass}`}>
+                    {operationalDisplay.line}
                   </span>
                 </div>
                 <button
+                  type="button"
                   onClick={togglePharmacyStatus}
-                  className={`relative inline-flex h-9 w-16 items-center rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-mint-DEFAULT focus:ring-offset-2 shadow-lg hover:shadow-xl ${
-                    pharmacyStatus ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-400 hover:bg-gray-500'
+                  disabled={!canToggleOperational}
+                  className={`relative inline-flex h-9 w-16 items-center rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-mint-DEFAULT focus:ring-offset-2 shadow-lg ${
+                    canToggleOperational ? 'hover:shadow-xl' : 'cursor-not-allowed opacity-50'
+                  } ${
+                    operationalDisplay.switchOn ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-400 hover:bg-gray-500'
                   }`}
-                  title={pharmacyStatus ? 'Fermer la pharmacie' : 'Ouvrir la pharmacie'}
+                  title={
+                    !canToggleOperational
+                      ? 'Validation administrateur requise avant ouvert / fermé'
+                      : pharmacyStatus
+                        ? 'Fermer la pharmacie'
+                        : 'Ouvrir la pharmacie'
+                  }
                 >
                   <span
                     className={`inline-block h-7 w-7 transform rounded-full bg-white shadow-xl transition-transform duration-300 ${
-                      pharmacyStatus ? 'translate-x-8' : 'translate-x-1'
+                      operationalDisplay.switchOn ? 'translate-x-8' : 'translate-x-1'
                     }`}
                   />
                 </button>
               </div>
+              {!canToggleOperational && pharmacyValidationStatus === 'pending' && (
+                <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Ouvert / fermé sera disponible après <strong>validation</strong> de votre pharmacie par un administrateur.
+                </p>
+              )}
+              {!canToggleOperational && pharmacyValidationStatus === 'rejected' && (
+                <p className="mt-3 text-xs text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  Pharmacie non validée. Contactez l’administrateur.
+                </p>
+              )}
             </div>
           </div>
         </aside>

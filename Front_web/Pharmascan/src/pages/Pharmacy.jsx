@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase, isDemoMode } from '../lib/supabase'
 import { mockStorage, mockPharmacy } from '../lib/mockData'
+import { resolvePharmacyForPharmacist } from '../lib/pharmacyHelpers'
 import { Building2, MapPin, Phone, Mail, Clock, CheckCircle, XCircle } from 'lucide-react'
 
 export default function Pharmacy() {
@@ -23,6 +24,10 @@ export default function Pharmacy() {
 
   const fetchPharmacy = async () => {
     try {
+      if (!isDemoMode && !user?.id) {
+        setLoading(false)
+        return
+      }
       if (isDemoMode) {
         // Mode démo : utiliser mockStorage
         const pharm = mockStorage.pharmacy || mockPharmacy
@@ -42,8 +47,8 @@ export default function Pharmacy() {
           .eq('user_id', user.id)
           .single()
 
-        if (pharmacist?.pharmacies) {
-          const pharm = pharmacist.pharmacies
+        const pharm = await resolvePharmacyForPharmacist(supabase, pharmacist)
+        if (pharm) {
           setPharmacy(pharm)
           setFormData({
             name: pharm.name || '',
@@ -84,7 +89,11 @@ export default function Pharmacy() {
           is_on_duty: formData.is_on_duty,
         }
       } else {
-        // Mode production : utiliser Supabase
+        const pid = pharmacy?.id
+        if (!pid) {
+          alert('Pharmacie introuvable. Rechargez la page.')
+          return
+        }
         const { error } = await supabase
           .from('pharmacies')
           .update({
@@ -94,7 +103,7 @@ export default function Pharmacy() {
             email: formData.email,
             is_on_duty: formData.is_on_duty,
           })
-          .eq('id', pharmacy.id)
+          .eq('id', pid)
 
         if (error) throw error
       }

@@ -8,7 +8,7 @@
 ---------------------------------------------
 Dans votre terminal PowerShell, exécutez :
 
-    cd "E:\Projet ETSIA\TEST PHARMACIEN"
+    cd "E:\Projet ETSIA\Pharmascan\Front_web\Pharmascan"
 
 
 ÉTAPE 2 : Ajouter Node.js au PATH et lancer
@@ -21,7 +21,7 @@ Copiez-collez ces 2 lignes :
 
 OU utilisez le chemin complet (si la première méthode ne fonctionne pas) :
     
-    cd "E:\Projet ETSIA\TEST PHARMACIEN"
+    cd "E:\Projet ETSIA\Pharmascan\Front_web\Pharmascan"
     & "C:\Program Files\nodejs\npm.cmd" run dev
 
 
@@ -29,7 +29,7 @@ OU utilisez le chemin complet (si la première méthode ne fonctionne pas) :
 COMMANDES COMPLÈTES (copiez tout) :
 ===========================================
 
-cd "E:\Projet ETSIA\TEST PHARMACIEN"
+cd "E:\Projet ETSIA\Pharmascan\Front_web\Pharmascan"
 $env:Path += ";C:\Program Files\nodejs"
 npm run dev
 

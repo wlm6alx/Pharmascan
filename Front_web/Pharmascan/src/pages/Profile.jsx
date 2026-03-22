@@ -4,7 +4,14 @@ import { supabase, isDemoMode } from '../lib/supabase'
 import { mockPharmacy, mockStorage } from '../lib/mockData'
 import { X, Edit, Save, Building2, User, Phone, MapPin, FileText, Mail, Upload, Camera, Image, Eye, EyeOff, Lock } from 'lucide-react'
 import { getFormattedCountries, getAllCitiesByCountry } from '../lib/locationData'
-import { getPhoneCode, getPhoneCodesList } from '../lib/phoneCodes'
+import { getPhoneCode } from '../lib/phoneCodes'
+import {
+  ensurePharmacistRow,
+  PHARMACY_PROFILE_UPDATED_EVENT,
+  resolvePharmacyForPharmacist,
+  resolveOrCreatePharmacy,
+} from '../lib/pharmacyHelpers'
+import { phoneNumberWithoutCode, parseLegacyAddressLine } from '../lib/profileAddress'
 
 export default function Profile() {
   const { user } = useAuth()
@@ -40,7 +47,6 @@ export default function Profile() {
     number: false,
     special: false
   })
-  const [phoneCodesList] = useState(() => getPhoneCodesList())
   const [availableCities, setAvailableCities] = useState([])
   const [countries] = useState(() => getFormattedCountries())
 
@@ -62,23 +68,36 @@ export default function Profile() {
     }
   }, [formData.country])
 
+  /** Indicatif toujours aligné sur le pays (corrige aussi les données incohérentes en base). */
+  useEffect(() => {
+    const country = formData.country || 'CM'
+    const { code } = getPhoneCode(country)
+    setFormData((prev) => (prev.phoneCode === code ? prev : { ...prev, phoneCode: code }))
+  }, [formData.country])
+
   const fetchPharmacy = async () => {
     try {
+      if (!isDemoMode && !user?.id) {
+        setLoading(false)
+        return
+      }
       if (isDemoMode) {
         const pharm = mockStorage.pharmacy || mockPharmacy
         setPharmacy(pharm)
-        const addressParts = pharm.address?.split('-') || []
+        const legacy = parseLegacyAddressLine(pharm.address)
+        const country = pharm.country || 'CM'
+        const pc = getPhoneCode(country).code
         setFormData({
           email: user?.email || '',
           pharmacyName: pharm.name || '',
-          ownerName: '',
-          licenseNumber: '',
-          country: 'CM',
-          phoneCode: '+237',
-          phoneNumber: pharm.phone?.replace('+237 ', '') || '',
-          city: addressParts[0] || '',
-          street: addressParts[1] || '',
-          reference: addressParts[2] || '',
+          ownerName: pharm.owner_name || '',
+          licenseNumber: pharm.license_number || '',
+          country,
+          phoneCode: pc,
+          phoneNumber: phoneNumberWithoutCode(pharm.phone, pc) || '',
+          city: pharm.city || legacy.city,
+          street: pharm.street || legacy.street,
+          reference: pharm.address_reference || legacy.reference,
           attestationFile: null,
           photoFile: null,
           currentPassword: '',
@@ -88,27 +107,39 @@ export default function Profile() {
         setAttestationUrl(pharm.attestation_url || null)
         setPhotoUrl(pharm.photo_url || null)
       } else {
-        const { data: pharmacist } = await supabase
-          .from('pharmacists')
-          .select('*, pharmacies(*)')
-          .eq('user_id', user.id)
-          .single()
+        const pharmacist = await ensurePharmacistRow(supabase, user)
 
-        if (pharmacist?.pharmacies) {
-          const pharm = pharmacist.pharmacies
+        if (!pharmacist) {
+          setPharmacy(null)
+          setFormData((prev) => ({
+            ...prev,
+            email: user?.email || '',
+          }))
+          return
+        }
+
+        const pharm = await resolvePharmacyForPharmacist(supabase, pharmacist)
+        const ownerFromPharmacist = [pharmacist.first_name, pharmacist.last_name]
+          .filter(Boolean)
+          .join(' ')
+          .trim()
+
+        if (pharm) {
           setPharmacy(pharm)
-          const addressParts = pharm.address?.split('-') || []
+          const legacy = parseLegacyAddressLine(pharm.address)
+          const country = pharm.country || 'CM'
+          const pc = getPhoneCode(country).code
           setFormData({
             email: user?.email || '',
             pharmacyName: pharm.name || '',
-            ownerName: pharm.owner_name || '',
+            ownerName: pharm.owner_name || ownerFromPharmacist || '',
             licenseNumber: pharm.license_number || '',
-            country: pharm.country || 'CM',
-            phoneCode: pharm.phone_code || '+237',
-            phoneNumber: pharm.phone?.replace(pharm.phone_code || '+237', '').trim() || '',
-            city: addressParts[0] || '',
-            street: addressParts[1] || '',
-            reference: addressParts[2] || '',
+            country,
+            phoneCode: pc,
+            phoneNumber: phoneNumberWithoutCode(pharm.phone, pc) || '',
+            city: pharm.city || legacy.city,
+            street: pharm.street || legacy.street,
+            reference: pharm.address_reference || legacy.reference,
             attestationFile: null,
             photoFile: null,
             currentPassword: '',
@@ -117,6 +148,13 @@ export default function Profile() {
           })
           setAttestationUrl(pharm.attestation_url || null)
           setPhotoUrl(pharm.photo_url || null)
+        } else {
+          setPharmacy(null)
+          setFormData((prev) => ({
+            ...prev,
+            email: user?.email || '',
+            ownerName: ownerFromPharmacist || prev.ownerName,
+          }))
         }
       }
     } catch (error) {
@@ -127,7 +165,17 @@ export default function Profile() {
   }
 
   const handleChange = (e) => {
-    const { name, value } = e.target
+    const { name, type, files } = e.target
+    if (type === 'file') {
+      const file = files?.[0] ?? null
+      setFormData((prev) => ({
+        ...prev,
+        [name]: file,
+      }))
+      return
+    }
+
+    const { value } = e.target
     if (name === 'country') {
       // Mettre à jour le code téléphonique quand le pays change
       try {
@@ -135,8 +183,8 @@ export default function Profile() {
         setFormData((prev) => ({
           ...prev,
           [name]: value,
-          phoneCode: phoneData?.code || '+237',
-          city: '', // Réinitialiser la ville quand le pays change
+          phoneCode: phoneData.code,
+          city: '',
         }))
       } catch (error) {
         console.error('Erreur lors de la mise à jour du code téléphonique:', error)
@@ -205,7 +253,7 @@ export default function Profile() {
             .from('pharmacy-documents')
             .upload(`${user.id}/attestation-${Date.now()}`, formData.attestationFile)
           
-          if (!attestationError) {
+          if (!attestationError && attestationData?.path) {
             const { data: { publicUrl } } = supabase.storage
               .from('pharmacy-documents')
               .getPublicUrl(attestationData.path)
@@ -222,7 +270,7 @@ export default function Profile() {
             .from('pharmacy-photos')
             .upload(`${user.id}/photo-${Date.now()}`, formData.photoFile)
           
-          if (!photoError) {
+          if (!photoError && photoData?.path) {
             const { data: { publicUrl } } = supabase.storage
               .from('pharmacy-photos')
               .getPublicUrl(photoData.path)
@@ -246,26 +294,55 @@ export default function Profile() {
           photo_url: photoUrlToSave,
         }
       } else {
+        if (!user?.id) {
+          alert('Session expirée. Reconnectez-vous.')
+          return
+        }
+
+        const pharmacist = await ensurePharmacistRow(supabase, user)
+
+        if (!pharmacist) {
+          alert(
+            'Impossible de créer ou charger votre fiche pharmacien. Vérifiez votre connexion.'
+          )
+          return
+        }
+
         const address = buildAddress()
+        const phoneFull = `${formData.phoneCode} ${formData.phoneNumber}`.trim()
+
+        let row = await resolvePharmacyForPharmacist(supabase, pharmacist)
+
         const updateData = {
           name: formData.pharmacyName,
-          address: address,
-          phone: `${formData.phoneCode} ${formData.phoneNumber}`,
+          address: address || '—',
+          phone: phoneFull,
           owner_name: formData.ownerName,
           license_number: formData.licenseNumber,
           country: formData.country,
           phone_code: formData.phoneCode,
+          city: formData.city,
+          street: formData.street,
+          address_reference: formData.reference,
         }
-        
         if (attestationUrlToSave) updateData.attestation_url = attestationUrlToSave
         if (photoUrlToSave) updateData.photo_url = photoUrlToSave
 
-        const { error } = await supabase
-          .from('pharmacies')
-          .update(updateData)
-          .eq('id', pharmacy.id)
+        if (!row) {
+          row = await resolveOrCreatePharmacy(supabase, pharmacist, updateData)
+        } else {
+          const { error } = await supabase
+            .from('pharmacies')
+            .update(updateData)
+            .eq('id', row.id)
 
-        if (error) throw error
+          if (error) throw error
+        }
+
+        if (!row?.id) {
+          alert('Impossible d’enregistrer la pharmacie. Réessayez ou contactez le support.')
+          return
+        }
       }
 
       // Réinitialiser les champs de mot de passe
@@ -277,6 +354,7 @@ export default function Profile() {
       }))
 
       await fetchPharmacy()
+      window.dispatchEvent(new Event(PHARMACY_PROFILE_UPDATED_EVENT))
       setShowModal(false)
       alert('Profil mis à jour avec succès')
     } catch (error) {
@@ -493,24 +571,26 @@ export default function Profile() {
                 </select>
               </div>
 
-              {/* Téléphone */}
+              {/* Téléphone — indicatif dérivé du pays */}
               <div className="bg-gray-50 rounded-xl p-5 border-2 border-gray-200">
                 <label className="block text-sm font-semibold text-gray-700 mb-2.5">
                   Téléphone
                 </label>
-                <div className="flex gap-3">
-                  <select
-                    name="phoneCode"
-                    value={formData.phoneCode}
-                    onChange={handleChange}
-                    className="w-32 px-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0b8fac] focus:border-[#0b8fac] transition-all shadow-sm"
+                <p className="text-xs text-gray-500 mb-2">
+                  L’indicatif correspond automatiquement au pays sélectionné ci-dessus.
+                </p>
+                <div className="flex gap-3 items-stretch">
+                  <div
+                    className="flex items-center justify-center gap-2 px-3 min-w-[5.5rem] bg-white border-2 border-gray-200 rounded-xl text-gray-800"
+                    title={getPhoneCode(formData.country || 'CM').name}
                   >
-                    {phoneCodesList.map((code) => (
-                      <option key={code.code} value={code.code}>
-                        {code.flag} {code.code}
-                      </option>
-                    ))}
-                  </select>
+                    <span className="text-2xl leading-none" aria-hidden>
+                      {getPhoneCode(formData.country || 'CM').flag}
+                    </span>
+                    <span className="font-semibold tabular-nums text-sm">
+                      {getPhoneCode(formData.country || 'CM').code}
+                    </span>
+                  </div>
                   <input
                     type="tel"
                     name="phoneNumber"
@@ -518,7 +598,7 @@ export default function Profile() {
                     onChange={handleChange}
                     required
                     placeholder="Numéro de téléphone"
-                    className="flex-1 px-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0b8fac] focus:border-[#0b8fac] transition-all shadow-sm hover:shadow-md"
+                    className="flex-1 min-w-0 px-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0b8fac] focus:border-[#0b8fac] transition-all shadow-sm hover:shadow-md"
                   />
                 </div>
               </div>

@@ -9,7 +9,7 @@ import {
   getAllCitiesByCountry,
   getCountryName
 } from '../lib/locationData'
-import { getPhoneCode, getPhoneCodesList } from '../lib/phoneCodes'
+import { getPhoneCode } from '../lib/phoneCodes'
 
 export default function Register() {
   const [formData, setFormData] = useState({
@@ -30,7 +30,6 @@ export default function Register() {
     attestationFile: null,
     photoFile: null,
   })
-  const [phoneCodesList] = useState(() => getPhoneCodesList())
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -103,21 +102,6 @@ export default function Register() {
           street: '',
           reference: '',
         }))
-      } else if (name === 'phoneCode') {
-        // Si le code téléphonique change, mettre à jour le pays correspondant
-        const selectedPhone = phoneCodesList.find(p => p.phoneCode === value)
-        if (selectedPhone) {
-          setFormData((prev) => ({
-            ...prev,
-            [name]: value,
-            country: selectedPhone.countryCode
-          }))
-        } else {
-          setFormData((prev) => ({
-            ...prev,
-            [name]: value,
-          }))
-        }
       } else if (type === 'checkbox') {
         setFormData((prev) => ({
           ...prev,
@@ -272,7 +256,7 @@ export default function Register() {
     if (errors.length > 0) {
       setFieldErrors(newFieldErrors)
       // Afficher un popup simple
-      alert('Veuillez remplir tous les champs obligatoires. Les champs manquants sont indiqués en rouge.')
+      alert('Veuillez remplir tous les champs obligatoires.')
       setLoading(false)
       return
     }
@@ -301,83 +285,96 @@ export default function Register() {
         // Rediriger vers le dashboard
         window.location.href = '/dashboard'
       } else {
-        // Mode production : utiliser Supabase
-        // Créer le compte utilisateur
+        // Mode production : métadonnées + trigger SQL créent pharmacien/pharmacie (même sans session si confirmation mail activée)
+        const fullAddress = buildAddress()
+
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email: formData.email,
           password: formData.password,
+          options: {
+            data: {
+              register_flow: 'pharmascan',
+              pharmacy_name: formData.pharmacyName.trim(),
+              address: fullAddress,
+              owner_name: formData.ownerName.trim(),
+              phone: `${formData.phoneCode} ${formData.phoneNumber}`.trim(),
+              license_number: formData.licenseNumber.trim(),
+              country: formData.country,
+              phone_code: formData.phoneCode,
+              city: formData.city.trim(),
+              street: formData.street.trim(),
+              address_reference: formData.reference.trim(),
+            },
+          },
         })
 
         if (authError) throw authError
 
-        // Upload des fichiers si présents
-        let attestationUrl = null
-        let photoUrl = null
+        if (!authData.user) {
+          throw new Error('Création du compte impossible. Réessayez ou utilisez un autre email.')
+        }
 
-        if (formData.attestationFile) {
-          const { data: attestationData, error: attestationError } = await supabase.storage
-            .from('pharmacy-documents')
-            .upload(`${authData.user.id}/attestation-${Date.now()}`, formData.attestationFile)
-          
-          if (!attestationError) {
+        // Session immédiate (ex. confirmation d’email désactivée) : upload + mise à jour des URLs
+        if (authData.session) {
+          const { data: pharm, error: pharmErr } = await supabase
+            .from('pharmacists')
+            .select('id, pharmacy_id')
+            .eq('user_id', authData.user.id)
+            .single()
+
+          if (pharmErr || !pharm?.pharmacy_id) {
+            throw new Error(
+              'Le profil pharmacien n’a pas été créé côté base. Exécutez le script supabase-auth-trigger.sql dans le SQL Editor Supabase, puis réessayez l’inscription.'
+            )
+          }
+
+          let attestationUrl = null
+          let photoUrl = null
+
+          if (formData.attestationFile) {
+            const { data: attestationData, error: attestationError } = await supabase.storage
+              .from('pharmacy-documents')
+              .upload(`${authData.user.id}/attestation-${Date.now()}`, formData.attestationFile)
+
+            if (attestationError) {
+              throw new Error(
+                `Envoi de l’attestation refusé : ${attestationError.message}. Vérifiez supabase-storage.sql et les politiques Storage.`
+              )
+            }
             const { data: { publicUrl } } = supabase.storage
               .from('pharmacy-documents')
               .getPublicUrl(attestationData.path)
             attestationUrl = publicUrl
           }
-        }
 
-        if (formData.photoFile) {
-          const { data: photoData, error: photoError } = await supabase.storage
-            .from('pharmacy-photos')
-            .upload(`${authData.user.id}/photo-${Date.now()}`, formData.photoFile)
-          
-          if (!photoError) {
+          if (formData.photoFile) {
+            const { data: photoData, error: photoError } = await supabase.storage
+              .from('pharmacy-photos')
+              .upload(`${authData.user.id}/photo-${Date.now()}`, formData.photoFile)
+
+            if (photoError) {
+              throw new Error(
+                `Envoi de la photo refusé : ${photoError.message}. Vérifiez supabase-storage.sql et les politiques Storage.`
+              )
+            }
             const { data: { publicUrl } } = supabase.storage
               .from('pharmacy-photos')
               .getPublicUrl(photoData.path)
             photoUrl = publicUrl
           }
+
+          const { error: upErr } = await supabase
+            .from('pharmacies')
+            .update({ attestation_url: attestationUrl, photo_url: photoUrl })
+            .eq('id', pharm.pharmacy_id)
+
+          if (upErr) throw upErr
+
+          navigate('/login', { state: { registrationComplete: true } })
+        } else {
+          // Confirmation d’email : pas de session → pas d’upload (dépôt possible depuis Profil après connexion)
+          navigate('/login', { state: { pendingEmailConfirmation: true } })
         }
-
-        // Créer le profil pharmacien
-        const { data: pharmacistData, error: pharmacistError } = await supabase
-          .from('pharmacists')
-          .insert({
-            user_id: authData.user.id,
-            email: formData.email,
-          })
-          .select()
-          .single()
-
-        if (pharmacistError) throw pharmacistError
-
-        // Construire l'adresse complète
-        const fullAddress = buildAddress()
-
-        // Créer la pharmacie
-        const { data: pharmacyData, error: pharmacyError } = await supabase
-          .from('pharmacies')
-          .insert({
-            name: formData.pharmacyName,
-            address: fullAddress,
-            pharmacist_id: pharmacistData.id,
-            attestation_url: attestationUrl,
-            photo_url: photoUrl,
-            status: 'pending',
-          })
-          .select()
-          .single()
-
-        if (pharmacyError) throw pharmacyError
-
-        // Lier le pharmacien à la pharmacie
-        await supabase
-          .from('pharmacists')
-          .update({ pharmacy_id: pharmacyData.id })
-          .eq('id', pharmacistData.id)
-
-        navigate('/login')
       }
     } catch (err) {
       setError(err.message || 'Erreur lors de la création du compte')
@@ -481,38 +478,34 @@ export default function Register() {
               />
             </div>
 
-            {/* Numéro de téléphone */}
+            {/* Numéro de téléphone — indicatif = pays sélectionné */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Numéro de téléphone
               </label>
-              <div className="flex gap-2">
-                {/* Sélecteur de code pays avec drapeau */}
-                <div className="relative flex-shrink-0">
-                  <select
-                    name="phoneCode"
-                    value={formData.phoneCode}
-                    onChange={handleChange}
-                    className={`w-32 px-3 py-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-mint-DEFAULT outline-none transition appearance-none cursor-pointer ${
-                      fieldErrors.phoneNumber 
-                        ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
-                        : 'border-gray-200 focus:border-mint-DEFAULT'
-                    }`}
-                  >
-                    {phoneCodesList.map((item) => (
-                      <option key={item.countryCode} value={item.phoneCode}>
-                        {item.flag} {item.phoneCode}
-                      </option>
-                    ))}
-                  </select>
+              <p className="text-xs text-gray-500 mb-2">
+                L’indicatif suit automatiquement le pays choisi plus haut.
+              </p>
+              <div className="flex gap-2 items-stretch">
+                <div
+                  className={`flex items-center justify-center gap-2 px-3 min-w-[5.5rem] bg-gray-50 border rounded-lg ${
+                    fieldErrors.phoneNumber ? 'border-red-500' : 'border-gray-200'
+                  }`}
+                  title={getPhoneCode(formData.country || 'CM').name}
+                >
+                  <span className="text-2xl leading-none" aria-hidden>
+                    {getPhoneCode(formData.country || 'CM').flag}
+                  </span>
+                  <span className="font-semibold tabular-nums text-sm text-gray-800">
+                    {getPhoneCode(formData.country || 'CM').code}
+                  </span>
                 </div>
-                {/* Champ numéro */}
                 <input
                   type="tel"
                   name="phoneNumber"
                   value={formData.phoneNumber}
                   onChange={handleChange}
-                  className={`flex-1 px-4 py-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-mint-DEFAULT outline-none transition ${
+                  className={`flex-1 min-w-0 px-4 py-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-mint-DEFAULT outline-none transition ${
                     fieldErrors.phoneNumber 
                       ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
                       : 'border-gray-200 focus:border-mint-DEFAULT'

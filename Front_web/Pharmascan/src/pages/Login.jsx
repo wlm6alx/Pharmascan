@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { supabase, isDemoMode } from '../lib/supabase'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import PharmaScanLogo from '../components/PharmaScanLogo'
 import { mockUser } from '../lib/mockData'
+import { ensurePharmacistRow } from '../lib/pharmacyHelpers'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -12,6 +13,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const location = useLocation()
+  const pendingEmailConfirmation = location.state?.pendingEmailConfirmation
+  const registrationComplete = location.state?.registrationComplete
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -37,16 +41,23 @@ export default function Login() {
 
         if (signInError) throw signInError
 
-        // Vérifier si l'utilisateur est un pharmacien
-        const { data: profile } = await supabase
+        // Fiche pharmacien (maybeSingle évite une erreur PostgREST si 0 ligne)
+        let { data: profile } = await supabase
           .from('pharmacists')
           .select('*')
           .eq('user_id', data.user.id)
-          .single()
+          .maybeSingle()
+
+        // Compte Auth sans fiche (trigger absent, RPC absente, etc.) — bootstrap puis INSERT client
+        if (!profile) {
+          profile = await ensurePharmacistRow(supabase, data.user)
+        }
 
         if (!profile) {
           await supabase.auth.signOut()
-          throw new Error('Accès réservé aux pharmaciens')
+          throw new Error(
+            'Impossible de créer la fiche pharmacien. Vérifiez les scripts SQL (supabase-schema.sql) et les politiques RLS sur la table pharmacists, ou contactez le support.'
+          )
         }
 
         navigate('/dashboard')
@@ -74,6 +85,20 @@ export default function Login() {
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-6 sm:mb-8 text-center">
             Se connecter
           </h1>
+
+          {pendingEmailConfirmation && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
+              <strong>Confirmez votre e-mail.</strong> Un lien vous a été envoyé. Après validation, connectez-vous ici.
+              Les documents (attestation, photo) pourront être déposés depuis la page <strong>Profil</strong> après
+              votre première connexion si l’envoi n’a pas été effectué avant la confirmation.
+            </div>
+          )}
+
+          {registrationComplete && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-900">
+              Inscription enregistrée. Vous pouvez vous connecter avec vos identifiants.
+            </div>
+          )}
 
            {/*{isDemoMode && (
             <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">

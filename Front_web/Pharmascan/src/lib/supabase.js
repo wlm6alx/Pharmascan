@@ -1,11 +1,17 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Mode démo activé si les variables d'environnement ne sont pas configurées
-const DEMO_MODE = !import.meta.env.VITE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL === 'https://your-project.supabase.co'
+// Mode démo si l’URL ou la clé anon ne sont pas celles d’un vrai projet Supabase
+const url = import.meta.env.VITE_SUPABASE_URL
+const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const DEMO_MODE =
+  !url ||
+  !anonKey ||
+  url === 'https://your-project.supabase.co' ||
+  anonKey === 'your-anon-key'
 
 // Configuration Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'your-anon-key'
+const supabaseUrl = url || 'https://your-project.supabase.co'
+const supabaseAnonKey = anonKey || 'your-anon-key'
 
 // Créer le client Supabase (sera utilisé en mode production)
 let supabaseClient = null

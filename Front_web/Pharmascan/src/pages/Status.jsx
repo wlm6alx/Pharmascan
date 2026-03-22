@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { resolvePharmacyForPharmacist, getOperationalStatus } from '../lib/pharmacyHelpers'
 import { Clock, Building2, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 
 export default function Status() {
@@ -15,15 +16,15 @@ export default function Status() {
 
   const fetchPharmacy = async () => {
     try {
+      if (!user?.id) return
       const { data: pharmacist } = await supabase
         .from('pharmacists')
         .select('*, pharmacies(*)')
         .eq('user_id', user.id)
         .single()
 
-      if (pharmacist?.pharmacies) {
-        setPharmacy(pharmacist.pharmacies)
-      }
+      const pharm = await resolvePharmacyForPharmacist(supabase, pharmacist)
+      if (pharm) setPharmacy(pharm)
     } catch (error) {
       console.error('Erreur:', error)
     } finally {
@@ -38,7 +39,7 @@ export default function Status() {
     try {
       const { error } = await supabase
         .from('pharmacies')
-        .update({ status: status })
+        .update({ operational_status: status })
         .eq('id', pharmacy.id)
 
       if (error) throw error
@@ -188,33 +189,55 @@ export default function Status() {
           Mettez à jour le statut d'ouverture de votre pharmacie pour informer les clients en temps réel.
         </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button
-            onClick={() => updateStatus('open')}
-            disabled={updating || pharmacy.status !== 'approved'}
-            className="px-6 py-4 bg-green-50 border-2 border-green-500 rounded-lg text-green-700 font-medium hover:bg-green-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <CheckCircle className="h-6 w-6 mx-auto mb-2" />
-            <div>Ouverte</div>
-          </button>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          {(() => {
+            const op = getOperationalStatus(pharmacy)
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() => updateStatus('open')}
+                  disabled={updating || pharmacy.status !== 'approved'}
+                  className={`px-4 py-4 sm:px-6 rounded-lg border-2 font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                    op === 'open'
+                      ? 'border-green-600 bg-green-100 text-green-900 ring-2 ring-green-500/30'
+                      : 'border-green-500 bg-green-50 text-green-700 hover:bg-green-100'
+                  }`}
+                >
+                  <CheckCircle className="h-6 w-6 mx-auto mb-2" />
+                  <div>Ouverte</div>
+                </button>
 
-          <button
-            onClick={() => updateStatus('closed')}
-            disabled={updating || pharmacy.status !== 'approved'}
-            className="px-6 py-4 bg-red-50 border-2 border-red-500 rounded-lg text-red-700 font-medium hover:bg-red-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <XCircle className="h-6 w-6 mx-auto mb-2" />
-            <div>Fermée</div>
-          </button>
+                <button
+                  type="button"
+                  onClick={() => updateStatus('closed')}
+                  disabled={updating || pharmacy.status !== 'approved'}
+                  className={`px-4 py-4 sm:px-6 rounded-lg border-2 font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                    op === 'closed'
+                      ? 'border-red-600 bg-red-100 text-red-900 ring-2 ring-red-500/30'
+                      : 'border-red-500 bg-red-50 text-red-700 hover:bg-red-100'
+                  }`}
+                >
+                  <XCircle className="h-6 w-6 mx-auto mb-2" />
+                  <div>Fermée</div>
+                </button>
 
-          <button
-            onClick={() => updateStatus('busy')}
-            disabled={updating || pharmacy.status !== 'approved'}
-            className="px-6 py-4 bg-yellow-50 border-2 border-yellow-500 rounded-lg text-yellow-700 font-medium hover:bg-yellow-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <AlertCircle className="h-6 w-6 mx-auto mb-2" />
-            <div>Occupée</div>
-          </button>
+                <button
+                  type="button"
+                  onClick={() => updateStatus('busy')}
+                  disabled={updating || pharmacy.status !== 'approved'}
+                  className={`px-4 py-4 sm:px-6 rounded-lg border-2 font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                    op === 'busy'
+                      ? 'border-amber-500 bg-amber-100 text-amber-900 ring-2 ring-amber-500/30'
+                      : 'border-yellow-500 bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
+                  }`}
+                >
+                  <AlertCircle className="h-6 w-6 mx-auto mb-2" />
+                  <div>Occupée</div>
+                </button>
+              </>
+            )
+          })()}
         </div>
       </div>
     </div>
