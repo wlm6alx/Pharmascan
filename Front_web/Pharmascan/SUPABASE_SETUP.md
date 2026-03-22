@@ -51,7 +51,7 @@ VITE_SUPABASE_URL=https://votre-projet.supabase.co
 VITE_SUPABASE_ANON_KEY=votre-clé-anon
 ```
 
-**Important :** les deux variables sont obligatoires. Si l’URL est encore le placeholder `https://your-project.supabase.co` ou si la clé vaut `your-anon-key`, l’application reste en **mode démo** (sans vrai Supabase).
+**Important :** les deux variables sont obligatoires. Si l’URL ou la clé sont encore les valeurs d’exemple (`your-project.supabase.co` / `your-anon-key`), l’application ne démarre pas : configurez un projet Supabase réel dans `.env`.
 
 Où trouver les valeurs :
 - **Settings** > **API** > **Project URL**

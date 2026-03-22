@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase, isDemoMode } from '../lib/supabase'
-import { mockStorage, mockPharmacy } from '../lib/mockData'
+import { supabase } from '../lib/supabase'
 import { resolvePharmacyForPharmacist } from '../lib/pharmacyHelpers'
 import { Building2, MapPin, Phone, Mail, Clock, CheckCircle, XCircle } from 'lucide-react'
 
@@ -24,13 +23,18 @@ export default function Pharmacy() {
 
   const fetchPharmacy = async () => {
     try {
-      if (!isDemoMode && !user?.id) {
+      if (!user?.id) {
         setLoading(false)
         return
       }
-      if (isDemoMode) {
-        // Mode démo : utiliser mockStorage
-        const pharm = mockStorage.pharmacy || mockPharmacy
+      const { data: pharmacist } = await supabase
+        .from('pharmacists')
+        .select('*, pharmacies(*)')
+        .eq('user_id', user.id)
+        .single()
+
+      const pharm = await resolvePharmacyForPharmacist(supabase, pharmacist)
+      if (pharm) {
         setPharmacy(pharm)
         setFormData({
           name: pharm.name || '',
@@ -39,25 +43,6 @@ export default function Pharmacy() {
           email: pharm.email || '',
           is_on_duty: pharm.is_on_duty || false,
         })
-      } else {
-        // Mode production : utiliser Supabase
-        const { data: pharmacist } = await supabase
-          .from('pharmacists')
-          .select('*, pharmacies(*)')
-          .eq('user_id', user.id)
-          .single()
-
-        const pharm = await resolvePharmacyForPharmacist(supabase, pharmacist)
-        if (pharm) {
-          setPharmacy(pharm)
-          setFormData({
-            name: pharm.name || '',
-            address: pharm.address || '',
-            phone: pharm.phone || '',
-            email: pharm.email || '',
-            is_on_duty: pharm.is_on_duty || false,
-          })
-        }
       }
     } catch (error) {
       console.error('Erreur:', error)
@@ -78,35 +63,23 @@ export default function Pharmacy() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
-      if (isDemoMode) {
-        // Mode démo : mettre à jour mockStorage
-        mockStorage.pharmacy = {
-          ...mockStorage.pharmacy,
+      const pid = pharmacy?.id
+      if (!pid) {
+        alert('Pharmacie introuvable. Rechargez la page.')
+        return
+      }
+      const { error } = await supabase
+        .from('pharmacies')
+        .update({
           name: formData.name,
           address: formData.address,
           phone: formData.phone,
           email: formData.email,
           is_on_duty: formData.is_on_duty,
-        }
-      } else {
-        const pid = pharmacy?.id
-        if (!pid) {
-          alert('Pharmacie introuvable. Rechargez la page.')
-          return
-        }
-        const { error } = await supabase
-          .from('pharmacies')
-          .update({
-            name: formData.name,
-            address: formData.address,
-            phone: formData.phone,
-            email: formData.email,
-            is_on_duty: formData.is_on_duty,
-          })
-          .eq('id', pid)
+        })
+        .eq('id', pid)
 
-        if (error) throw error
-      }
+      if (error) throw error
 
       await fetchPharmacy()
       setEditing(false)
@@ -119,46 +92,32 @@ export default function Pharmacy() {
   const handleCreatePharmacy = async (e) => {
     e.preventDefault()
     try {
-      if (isDemoMode) {
-        // Mode démo : créer dans mockStorage
-        mockStorage.pharmacy = {
-          ...mockPharmacy,
+      const { data: pharmacist } = await supabase
+        .from('pharmacists')
+        .select('id')
+        .eq('user_id', user.id)
+        .single()
+
+      const { data, error } = await supabase
+        .from('pharmacies')
+        .insert({
           name: formData.name,
           address: formData.address,
           phone: formData.phone,
           email: formData.email,
           is_on_duty: formData.is_on_duty,
-        }
-      } else {
-        // Mode production : utiliser Supabase
-        const { data: pharmacist } = await supabase
-          .from('pharmacists')
-          .select('id')
-          .eq('user_id', user.id)
-          .single()
+          pharmacist_id: pharmacist.id,
+          status: 'pending',
+        })
+        .select()
+        .single()
 
-        const { data, error } = await supabase
-          .from('pharmacies')
-          .insert({
-            name: formData.name,
-            address: formData.address,
-            phone: formData.phone,
-            email: formData.email,
-            is_on_duty: formData.is_on_duty,
-            pharmacist_id: pharmacist.id,
-            status: 'pending',
-          })
-          .select()
-          .single()
+      if (error) throw error
 
-        if (error) throw error
-
-        // Lier le pharmacien à la pharmacie
-        await supabase
-          .from('pharmacists')
-          .update({ pharmacy_id: data.id })
-          .eq('id', pharmacist.id)
-      }
+      await supabase
+        .from('pharmacists')
+        .update({ pharmacy_id: data.id })
+        .eq('id', pharmacist.id)
 
       await fetchPharmacy()
       setEditing(false)

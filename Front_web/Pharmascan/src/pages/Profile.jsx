@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase, isDemoMode } from '../lib/supabase'
-import { mockPharmacy, mockStorage } from '../lib/mockData'
+import { supabase } from '../lib/supabase'
 import { X, Edit, Save, Building2, User, Phone, MapPin, FileText, Mail, Upload, Camera, Image, Eye, EyeOff, Lock } from 'lucide-react'
 import { getFormattedCountries, getAllCitiesByCountry } from '../lib/locationData'
 import { getPhoneCode } from '../lib/phoneCodes'
@@ -77,37 +76,11 @@ export default function Profile() {
 
   const fetchPharmacy = async () => {
     try {
-      if (!isDemoMode && !user?.id) {
+      if (!user?.id) {
         setLoading(false)
         return
       }
-      if (isDemoMode) {
-        const pharm = mockStorage.pharmacy || mockPharmacy
-        setPharmacy(pharm)
-        const legacy = parseLegacyAddressLine(pharm.address)
-        const country = pharm.country || 'CM'
-        const pc = getPhoneCode(country).code
-        setFormData({
-          email: user?.email || '',
-          pharmacyName: pharm.name || '',
-          ownerName: pharm.owner_name || '',
-          licenseNumber: pharm.license_number || '',
-          country,
-          phoneCode: pc,
-          phoneNumber: phoneNumberWithoutCode(pharm.phone, pc) || '',
-          city: pharm.city || legacy.city,
-          street: pharm.street || legacy.street,
-          reference: pharm.address_reference || legacy.reference,
-          attestationFile: null,
-          photoFile: null,
-          currentPassword: '',
-          newPassword: '',
-          confirmPassword: '',
-        })
-        setAttestationUrl(pharm.attestation_url || null)
-        setPhotoUrl(pharm.photo_url || null)
-      } else {
-        const pharmacist = await ensurePharmacistRow(supabase, user)
+      const pharmacist = await ensurePharmacistRow(supabase, user)
 
         if (!pharmacist) {
           setPharmacy(null)
@@ -156,7 +129,6 @@ export default function Profile() {
             ownerName: ownerFromPharmacist || prev.ownerName,
           }))
         }
-      }
     } catch (error) {
       console.error('Erreur:', error)
     } finally {
@@ -232,13 +204,10 @@ export default function Profile() {
           return
         }
 
-        // Changer le mot de passe
-        if (!isDemoMode) {
-          const { error: updateError } = await supabase.auth.updateUser({
-            password: formData.newPassword
-          })
-          if (updateError) throw updateError
-        }
+        const { error: updateError } = await supabase.auth.updateUser({
+          password: formData.newPassword
+        })
+        if (updateError) throw updateError
       }
 
       let attestationUrlToSave = attestationUrl
@@ -246,103 +215,79 @@ export default function Profile() {
 
       // Upload des fichiers si présents
       if (formData.attestationFile) {
-        if (isDemoMode) {
-          attestationUrlToSave = URL.createObjectURL(formData.attestationFile)
-        } else {
-          const { data: attestationData, error: attestationError } = await supabase.storage
+        const { data: attestationData, error: attestationError } = await supabase.storage
+          .from('pharmacy-documents')
+          .upload(`${user.id}/attestation-${Date.now()}`, formData.attestationFile)
+        
+        if (!attestationError && attestationData?.path) {
+          const { data: { publicUrl } } = supabase.storage
             .from('pharmacy-documents')
-            .upload(`${user.id}/attestation-${Date.now()}`, formData.attestationFile)
-          
-          if (!attestationError && attestationData?.path) {
-            const { data: { publicUrl } } = supabase.storage
-              .from('pharmacy-documents')
-              .getPublicUrl(attestationData.path)
-            attestationUrlToSave = publicUrl
-          }
+            .getPublicUrl(attestationData.path)
+          attestationUrlToSave = publicUrl
         }
       }
 
       if (formData.photoFile) {
-        if (isDemoMode) {
-          photoUrlToSave = URL.createObjectURL(formData.photoFile)
-        } else {
-          const { data: photoData, error: photoError } = await supabase.storage
+        const { data: photoData, error: photoError } = await supabase.storage
+          .from('pharmacy-photos')
+          .upload(`${user.id}/photo-${Date.now()}`, formData.photoFile)
+        
+        if (!photoError && photoData?.path) {
+          const { data: { publicUrl } } = supabase.storage
             .from('pharmacy-photos')
-            .upload(`${user.id}/photo-${Date.now()}`, formData.photoFile)
-          
-          if (!photoError && photoData?.path) {
-            const { data: { publicUrl } } = supabase.storage
-              .from('pharmacy-photos')
-              .getPublicUrl(photoData.path)
-            photoUrlToSave = publicUrl
-          }
+            .getPublicUrl(photoData.path)
+          photoUrlToSave = publicUrl
         }
       }
 
-      if (isDemoMode) {
-        const address = buildAddress()
-        mockStorage.pharmacy = {
-          ...mockStorage.pharmacy,
-          name: formData.pharmacyName,
-          address: address,
-          phone: `${formData.phoneCode} ${formData.phoneNumber}`,
-          owner_name: formData.ownerName,
-          license_number: formData.licenseNumber,
-          country: formData.country,
-          phone_code: formData.phoneCode,
-          attestation_url: attestationUrlToSave,
-          photo_url: photoUrlToSave,
-        }
+      if (!user?.id) {
+        alert('Session expirée. Reconnectez-vous.')
+        return
+      }
+
+      const pharmacist = await ensurePharmacistRow(supabase, user)
+
+      if (!pharmacist) {
+        alert(
+          'Impossible de créer ou charger votre fiche pharmacien. Vérifiez votre connexion.'
+        )
+        return
+      }
+
+      const address = buildAddress()
+      const phoneFull = `${formData.phoneCode} ${formData.phoneNumber}`.trim()
+
+      let row = await resolvePharmacyForPharmacist(supabase, pharmacist)
+
+      const updateData = {
+        name: formData.pharmacyName,
+        address: address || '—',
+        phone: phoneFull,
+        owner_name: formData.ownerName,
+        license_number: formData.licenseNumber,
+        country: formData.country,
+        phone_code: formData.phoneCode,
+        city: formData.city,
+        street: formData.street,
+        address_reference: formData.reference,
+      }
+      if (attestationUrlToSave) updateData.attestation_url = attestationUrlToSave
+      if (photoUrlToSave) updateData.photo_url = photoUrlToSave
+
+      if (!row) {
+        row = await resolveOrCreatePharmacy(supabase, pharmacist, updateData)
       } else {
-        if (!user?.id) {
-          alert('Session expirée. Reconnectez-vous.')
-          return
-        }
+        const { error } = await supabase
+          .from('pharmacies')
+          .update(updateData)
+          .eq('id', row.id)
 
-        const pharmacist = await ensurePharmacistRow(supabase, user)
+        if (error) throw error
+      }
 
-        if (!pharmacist) {
-          alert(
-            'Impossible de créer ou charger votre fiche pharmacien. Vérifiez votre connexion.'
-          )
-          return
-        }
-
-        const address = buildAddress()
-        const phoneFull = `${formData.phoneCode} ${formData.phoneNumber}`.trim()
-
-        let row = await resolvePharmacyForPharmacist(supabase, pharmacist)
-
-        const updateData = {
-          name: formData.pharmacyName,
-          address: address || '—',
-          phone: phoneFull,
-          owner_name: formData.ownerName,
-          license_number: formData.licenseNumber,
-          country: formData.country,
-          phone_code: formData.phoneCode,
-          city: formData.city,
-          street: formData.street,
-          address_reference: formData.reference,
-        }
-        if (attestationUrlToSave) updateData.attestation_url = attestationUrlToSave
-        if (photoUrlToSave) updateData.photo_url = photoUrlToSave
-
-        if (!row) {
-          row = await resolveOrCreatePharmacy(supabase, pharmacist, updateData)
-        } else {
-          const { error } = await supabase
-            .from('pharmacies')
-            .update(updateData)
-            .eq('id', row.id)
-
-          if (error) throw error
-        }
-
-        if (!row?.id) {
-          alert('Impossible d’enregistrer la pharmacie. Réessayez ou contactez le support.')
-          return
-        }
+      if (!row?.id) {
+        alert('Impossible d’enregistrer la pharmacie. Réessayez ou contactez le support.')
+        return
       }
 
       // Réinitialiser les champs de mot de passe

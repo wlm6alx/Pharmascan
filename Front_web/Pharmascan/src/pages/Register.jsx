@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { supabase, isDemoMode } from '../lib/supabase'
-import { mockUser } from '../lib/mockData'
+import { supabase } from '../lib/supabase'
 import { Eye, EyeOff, AlertCircle, Upload } from 'lucide-react'
 import PharmaScanLogo from '../components/PharmaScanLogo'
 import { 
@@ -266,26 +265,6 @@ export default function Register() {
     setError('')
 
     try {
-      if (isDemoMode) {
-        // Mode démo : simuler la création de compte
-        const demoUser = {
-          ...mockUser,
-          email: formData.email,
-        }
-        localStorage.setItem('demo_user', JSON.stringify(demoUser))
-        // Sauvegarder l'adresse construite
-        const fullAddress = buildAddress()
-        if (fullAddress) {
-          const demoPharmacy = {
-            name: formData.pharmacyName,
-            address: fullAddress,
-          }
-          localStorage.setItem('demo_pharmacy', JSON.stringify(demoPharmacy))
-        }
-        // Rediriger vers le dashboard
-        window.location.href = '/dashboard'
-      } else {
-        // Mode production : métadonnées + trigger SQL créent pharmacien/pharmacie (même sans session si confirmation mail activée)
         const fullAddress = buildAddress()
 
         const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -375,7 +354,6 @@ export default function Register() {
           // Confirmation d’email : pas de session → pas d’upload (dépôt possible depuis Profil après connexion)
           navigate('/login', { state: { pendingEmailConfirmation: true } })
         }
-      }
     } catch (err) {
       setError(err.message || 'Erreur lors de la création du compte')
     } finally {

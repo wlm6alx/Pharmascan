@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase, isDemoMode } from '../lib/supabase'
-import { mockStorage } from '../lib/mockData'
+import { supabase } from '../lib/supabase'
 import {
   normalizeBarcodeDigits,
   isValidBarcodeEntry,
@@ -97,10 +96,7 @@ export default function Medications() {
   })
 
   useEffect(() => {
-    if (isDemoMode) {
-      // Mode démo : charger immédiatement
-      setMedications([...mockStorage.medications])
-    } else if (user?.id) {
+    if (user?.id) {
       fetchMedications()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -261,76 +257,46 @@ export default function Medications() {
         return
       }
 
-      if (isDemoMode) {
-        // Mode démo : utiliser mockStorage
-        const medicationData = {
-          id: editingMedication ? editingMedication.id : Date.now().toString(),
-          name: formData.name,
-          category: formData.category.trim(),
-          barcode: barcodeNorm,
-          quantity: formData.quantity,
-          production_date: monthYearToProductionIso(formData.productionDate) || null,
-          expiration_date: monthYearToExpirationIso(formData.expirationDate) || null,
-          available: formData.quantity > 0,
-          dosage: formData.dosage || '',
-          form: formData.form || '',
-          manufacturer: formData.manufacturer || '',
-          price: formData.price ?? 0,
-        }
+      const { data: pharmacist } = await supabase
+        .from('pharmacists')
+        .select('pharmacy_id')
+        .eq('user_id', user.id)
+        .single()
 
-        if (editingMedication) {
-          const index = mockStorage.medications.findIndex(m => m.id === editingMedication.id)
-          if (index !== -1) {
-            mockStorage.medications[index] = medicationData
-          }
-          alert('Médicament mis à jour avec succès')
-        } else {
-          mockStorage.medications.push(medicationData)
-          alert('Médicament ajouté avec succès')
-        }
+      if (!pharmacist?.pharmacy_id) {
+        alert('Veuillez d\'abord créer votre pharmacie')
+        return
+      }
+
+      const medicationData = {
+        name: formData.name,
+        category: formData.category.trim(),
+        barcode: barcodeNorm,
+        quantity: formData.quantity,
+        production_date: monthYearToProductionIso(formData.productionDate) || null,
+        expiration_date: monthYearToExpirationIso(formData.expirationDate) || null,
+        dosage: formData.dosage || '',
+        form: formData.form || '',
+        manufacturer: formData.manufacturer || '',
+        price: formData.price || 0,
+        pharmacy_id: pharmacist.pharmacy_id,
+      }
+
+      if (editingMedication) {
+        const { error } = await supabase
+          .from('medications')
+          .update(medicationData)
+          .eq('id', editingMedication.id)
+
+        if (error) throw error
+        alert('Médicament mis à jour avec succès')
       } else {
-        // Mode production : utiliser Supabase
-        const { data: pharmacist } = await supabase
-          .from('pharmacists')
-          .select('pharmacy_id')
-          .eq('user_id', user.id)
-          .single()
+        const { error } = await supabase
+          .from('medications')
+          .insert(medicationData)
 
-        if (!pharmacist?.pharmacy_id) {
-          alert('Veuillez d\'abord créer votre pharmacie')
-          return
-        }
-
-        const medicationData = {
-          name: formData.name,
-          category: formData.category.trim(),
-          barcode: barcodeNorm,
-          quantity: formData.quantity,
-          production_date: monthYearToProductionIso(formData.productionDate) || null,
-          expiration_date: monthYearToExpirationIso(formData.expirationDate) || null,
-          dosage: formData.dosage || '',
-          form: formData.form || '',
-          manufacturer: formData.manufacturer || '',
-          price: formData.price || 0,
-          pharmacy_id: pharmacist.pharmacy_id,
-        }
-
-        if (editingMedication) {
-          const { error } = await supabase
-            .from('medications')
-            .update(medicationData)
-            .eq('id', editingMedication.id)
-
-          if (error) throw error
-          alert('Médicament mis à jour avec succès')
-        } else {
-          const { error } = await supabase
-            .from('medications')
-            .insert(medicationData)
-
-          if (error) throw error
-          alert('Médicament ajouté avec succès')
-        }
+        if (error) throw error
+        alert('Médicament ajouté avec succès')
       }
 
       setShowModal(false)
@@ -379,18 +345,12 @@ export default function Medications() {
     if (!medicationToDelete) return
 
     try {
-      if (isDemoMode) {
-        // Mode démo : supprimer de mockStorage
-        mockStorage.medications = mockStorage.medications.filter(m => m.id !== medicationToDelete.id)
-      } else {
-        // Mode production : utiliser Supabase
-        const { error } = await supabase
-          .from('medications')
-          .delete()
-          .eq('id', medicationToDelete.id)
+      const { error } = await supabase
+        .from('medications')
+        .delete()
+        .eq('id', medicationToDelete.id)
 
-        if (error) throw error
-      }
+      if (error) throw error
       setShowDeleteConfirm(false)
       setMedicationToDelete(null)
       fetchMedications()

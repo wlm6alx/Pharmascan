@@ -1,8 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase, isDemoMode } from '../lib/supabase'
-import { mockStorage } from '../lib/mockData'
+import { supabase } from '../lib/supabase'
 import {
   isMedicationExpired,
   expirationDateSortKey,
@@ -66,11 +65,7 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     setLoading(true)
     try {
-      if (isDemoMode) {
-        const meds = mockStorage.medications
-        setMedications(meds)
-        setStats(computeStats(meds))
-      } else if (user?.id) {
+      if (user?.id) {
         const { data: pharmacist } = await supabase
           .from('pharmacists')
           .select('pharmacy_id')

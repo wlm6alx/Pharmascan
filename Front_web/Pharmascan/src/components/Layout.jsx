@@ -1,13 +1,12 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useEffect, useRef, useState } from 'react'
-import { supabase, isDemoMode } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import {
   isPharmacyOpenForDisplay,
   PHARMACY_PROFILE_UPDATED_EVENT,
   resolvePharmacyForPharmacist,
 } from '../lib/pharmacyHelpers'
-import { mockStorage } from '../lib/mockData'
 import { Bell, User, LogOut, Menu, X, Home, Pill, Building2, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import PharmaScanLogo from './PharmaScanLogo'
 
@@ -59,28 +58,21 @@ export default function Layout({ children }) {
 
   const fetchPharmacyStatus = async () => {
     try {
-      if (isDemoMode) {
-        const pharmacy = mockStorage.pharmacy
-        setPharmacyStatus(isPharmacyOpenForDisplay(pharmacy))
-        setPharmacyValidationStatus(pharmacy?.status ?? 'approved')
-        setPharmacyPhotoUrl(pharmacy?.photo_url?.trim() || null)
-      } else {
-        const { data: pharmacist } = await supabase
-          .from('pharmacists')
-          .select('id, pharmacy_id')
-          .eq('user_id', user?.id)
-          .maybeSingle()
+      const { data: pharmacist } = await supabase
+        .from('pharmacists')
+        .select('id, pharmacy_id')
+        .eq('user_id', user?.id)
+        .maybeSingle()
 
-        const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
-        if (pharmacy) {
-          setPharmacyStatus(isPharmacyOpenForDisplay(pharmacy))
-          setPharmacyValidationStatus(pharmacy.status ?? null)
-          setPharmacyPhotoUrl(pharmacy.photo_url?.trim() || null)
-        } else {
-          setPharmacyStatus(false)
-          setPharmacyValidationStatus(null)
-          setPharmacyPhotoUrl(null)
-        }
+      const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
+      if (pharmacy) {
+        setPharmacyStatus(isPharmacyOpenForDisplay(pharmacy))
+        setPharmacyValidationStatus(pharmacy.status ?? null)
+        setPharmacyPhotoUrl(pharmacy.photo_url?.trim() || null)
+      } else {
+        setPharmacyStatus(false)
+        setPharmacyValidationStatus(null)
+        setPharmacyPhotoUrl(null)
       }
     } catch (error) {
       console.error('Erreur:', error)
@@ -90,32 +82,25 @@ export default function Layout({ children }) {
 
   const fetchUnreadNotifications = async () => {
     try {
-      if (isDemoMode) {
-        // Mode démo : compter les notifications non lues dans mockStorage
-        const unread = mockStorage.notifications.filter(n => !n.read).length
-        setUnreadCount(unread)
-      } else {
-        // Mode production : utiliser Supabase
-        const { data: pharmacist } = await supabase
-          .from('pharmacists')
-          .select('id, pharmacy_id')
-          .eq('user_id', user?.id)
-          .maybeSingle()
+      const { data: pharmacist } = await supabase
+        .from('pharmacists')
+        .select('id, pharmacy_id')
+        .eq('user_id', user?.id)
+        .maybeSingle()
 
-        const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
-        if (pharmacy?.id) {
-          const { data, error } = await supabase
-            .from('notifications')
-            .select('id')
-            .eq('pharmacy_id', pharmacy.id)
-            .eq('read', false)
+      const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
+      if (pharmacy?.id) {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('id')
+          .eq('pharmacy_id', pharmacy.id)
+          .eq('read', false)
 
-          if (!error) {
-            setUnreadCount(data?.length || 0)
-          }
-        } else {
-          setUnreadCount(0)
+        if (!error) {
+          setUnreadCount(data?.length || 0)
         }
+      } else {
+        setUnreadCount(0)
       }
     } catch (error) {
       console.error('Erreur:', error)
@@ -136,8 +121,7 @@ export default function Layout({ children }) {
     return () => window.removeEventListener(PHARMACY_PROFILE_UPDATED_EVENT, onProfileUpdated)
   }, [])
 
-  const canToggleOperational =
-    isDemoMode || pharmacyValidationStatus === 'approved'
+  const canToggleOperational = pharmacyValidationStatus === 'approved'
 
   /** Tant que la pharmacie n’est pas approuvée, on n’affiche pas ouvert/fermé issu de la BDD (souvent trompeur). */
   const operationalDisplay = (() => {
@@ -177,37 +161,26 @@ export default function Layout({ children }) {
       return
     }
     try {
-      if (isDemoMode) {
-        // Mode démo : mettre à jour mockStorage
-        const newStatus = !pharmacyStatus
-        if (mockStorage.pharmacy) {
-          mockStorage.pharmacy.operational_status = newStatus ? 'open' : 'closed'
-          mockStorage.pharmacy.is_on_duty = newStatus
-        }
-        setPharmacyStatus(newStatus)
-      } else {
-        // Mode production : utiliser Supabase
-        const { data: pharmacist } = await supabase
-          .from('pharmacists')
-          .select('id, pharmacy_id')
-          .eq('user_id', user?.id)
-          .maybeSingle()
+      const { data: pharmacist } = await supabase
+        .from('pharmacists')
+        .select('id, pharmacy_id')
+        .eq('user_id', user?.id)
+        .maybeSingle()
 
-        const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
-        if (pharmacy?.id) {
-          const nextOpen = !pharmacyStatus
-          const { error } = await supabase
-            .from('pharmacies')
-            .update({ operational_status: nextOpen ? 'open' : 'closed' })
-            .eq('id', pharmacy.id)
+      const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
+      if (pharmacy?.id) {
+        const nextOpen = !pharmacyStatus
+        const { error } = await supabase
+          .from('pharmacies')
+          .update({ operational_status: nextOpen ? 'open' : 'closed' })
+          .eq('id', pharmacy.id)
 
-          if (error) {
-            console.error(error)
-            alert('Impossible de mettre à jour le statut : ' + error.message)
-            return
-          }
-          setPharmacyStatus(nextOpen)
+        if (error) {
+          console.error(error)
+          alert('Impossible de mettre à jour le statut : ' + error.message)
+          return
         }
+        setPharmacyStatus(nextOpen)
       }
     } catch (error) {
       console.error('Erreur:', error)

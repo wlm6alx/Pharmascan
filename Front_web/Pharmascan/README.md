@@ -37,13 +37,9 @@ Application React pour la gestion des interfaces pharmacien du système PharmaSc
 npm install
 ```
 
-2. Configurer Supabase:
+2. Configurer Supabase (obligatoire — pas de mode sans base) :
    - Créer un fichier `.env` à la racine du projet
-   - Ajouter vos clés Supabase:
-```
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-```
+   - Copier `.env.example` et renseigner l’URL et la clé **anon** de votre projet Supabase (voir [SUPABASE_SETUP.md](./SUPABASE_SETUP.md))
 
 3. Lancer l'application en mode développement:
 ```bash

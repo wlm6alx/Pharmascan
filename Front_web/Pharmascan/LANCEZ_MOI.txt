@@ -37,6 +37,7 @@ npm run dev
 Une fois l'application lancée, ouvrez :
 http://localhost:5173
 
-Mode démo : Utilisez n'importe quel email/mot de passe pour vous connecter !
-Exemple : test@demo.com / test123
+Production : configurez un fichier .env avec vos clés Supabase réelles
+(voir .env.example et SUPABASE_SETUP.md), puis connectez-vous avec un compte
+créé via l’inscription ou la console Supabase.
 ===========================================

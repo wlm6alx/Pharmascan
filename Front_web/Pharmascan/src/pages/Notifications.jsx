@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase, isDemoMode } from '../lib/supabase'
-import { mockStorage } from '../lib/mockData'
+import { supabase } from '../lib/supabase'
 import { RefreshCw, Trash2 } from 'lucide-react'
 
 export default function Notifications() {
@@ -15,28 +14,21 @@ export default function Notifications() {
 
   const fetchNotifications = async () => {
     try {
-      if (isDemoMode) {
-        // Mode démo : utiliser les données mockées
-        setNotifications([...mockStorage.notifications])
-      } else {
-        // Mode production : utiliser Supabase
-        const { data: pharmacist } = await supabase
-          .from('pharmacists')
-          .select('pharmacy_id')
-          .eq('user_id', user.id)
-          .single()
+      const { data: pharmacist } = await supabase
+        .from('pharmacists')
+        .select('pharmacy_id')
+        .eq('user_id', user.id)
+        .single()
 
-        if (pharmacist?.pharmacy_id) {
-          // Récupérer les notifications depuis Supabase
-          const { data, error } = await supabase
-            .from('notifications')
-            .select('*')
-            .eq('pharmacy_id', pharmacist.pharmacy_id)
-            .order('created_at', { ascending: false })
+      if (pharmacist?.pharmacy_id) {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('pharmacy_id', pharmacist.pharmacy_id)
+          .order('created_at', { ascending: false })
 
-          if (error) throw error
-          setNotifications(data || [])
-        }
+        if (error) throw error
+        setNotifications(data || [])
       }
     } catch (error) {
       console.error('Erreur:', error)
@@ -47,13 +39,8 @@ export default function Notifications() {
 
   const handleDelete = async (id) => {
     try {
-      if (isDemoMode) {
-        // Mode démo : supprimer de mockStorage
-        mockStorage.notifications = mockStorage.notifications.filter((n) => n.id !== id)
-      } else {
-        // Mode production : utiliser Supabase
-        // await supabase.from('notifications').delete().eq('id', id)
-      }
+      const { error } = await supabase.from('notifications').delete().eq('id', id)
+      if (error) throw error
       setNotifications(notifications.filter((n) => n.id !== id))
     } catch (error) {
       console.error('Erreur:', error)
@@ -125,15 +112,10 @@ export default function Notifications() {
                       // Marquer comme lu au clic
                       if (!notification.read) {
                         try {
-                          if (isDemoMode) {
-                            const notif = mockStorage.notifications.find(n => n.id === notification.id)
-                            if (notif) notif.read = true
-                          } else {
-                            await supabase
-                              .from('notifications')
-                              .update({ read: true })
-                              .eq('id', notification.id)
-                          }
+                          await supabase
+                            .from('notifications')
+                            .update({ read: true })
+                            .eq('id', notification.id)
                           // Mettre à jour l'état local
                           setNotifications(notifications.map(n => 
                             n.id === notification.id ? { ...n, read: true } : n

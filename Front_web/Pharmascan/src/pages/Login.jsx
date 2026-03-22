@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { supabase, isDemoMode } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import PharmaScanLogo from '../components/PharmaScanLogo'
-import { mockUser } from '../lib/mockData'
 import { ensurePharmacistRow } from '../lib/pharmacyHelpers'
 
 export default function Login() {
@@ -23,45 +22,31 @@ export default function Login() {
     setError('')
 
     try {
-      if (isDemoMode) {
-        // Mode démo : accepter n'importe quel email/mot de passe
-        const demoUser = {
-          ...mockUser,
-          email: email,
-        }
-        localStorage.setItem('demo_user', JSON.stringify(demoUser))
-        // Recharger la page pour mettre à jour le contexte
-        window.location.href = '/dashboard'
-      } else {
-        // Mode production : utiliser Supabase
-        const { data, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        })
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-        if (signInError) throw signInError
+      if (signInError) throw signInError
 
-        // Fiche pharmacien (maybeSingle évite une erreur PostgREST si 0 ligne)
-        let { data: profile } = await supabase
-          .from('pharmacists')
-          .select('*')
-          .eq('user_id', data.user.id)
-          .maybeSingle()
+      let { data: profile } = await supabase
+        .from('pharmacists')
+        .select('*')
+        .eq('user_id', data.user.id)
+        .maybeSingle()
 
-        // Compte Auth sans fiche (trigger absent, RPC absente, etc.) — bootstrap puis INSERT client
-        if (!profile) {
-          profile = await ensurePharmacistRow(supabase, data.user)
-        }
-
-        if (!profile) {
-          await supabase.auth.signOut()
-          throw new Error(
-            'Impossible de créer la fiche pharmacien. Vérifiez les scripts SQL (supabase-schema.sql) et les politiques RLS sur la table pharmacists, ou contactez le support.'
-          )
-        }
-
-        navigate('/dashboard')
+      if (!profile) {
+        profile = await ensurePharmacistRow(supabase, data.user)
       }
+
+      if (!profile) {
+        await supabase.auth.signOut()
+        throw new Error(
+          'Impossible de créer la fiche pharmacien. Vérifiez les scripts SQL (supabase-schema.sql) et les politiques RLS sur la table pharmacists, ou contactez le support.'
+        )
+      }
+
+      navigate('/dashboard')
     } catch (err) {
       setError(err.message || 'Erreur lors de la connexion')
     } finally {
@@ -99,17 +84,6 @@ export default function Login() {
               Inscription enregistrée. Vous pouvez vous connecter avec vos identifiants.
             </div>
           )}
-
-           {/*{isDemoMode && (
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800">
-                {/*
-                <strong>Mode démo activé :</strong> Utilisez n'importe quel email et mot de passe pour vous connecter.
-                
-              </p>
-            </div>
-          )}
-          */}
 
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2 text-red-700">
