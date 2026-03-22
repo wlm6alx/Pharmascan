@@ -1,0 +1,42 @@
+===========================================
+  SOLUTION RAPIDE POUR LANCER L'APPLICATION
+===========================================
+
+⚠️ IMPORTANT : Vous devez être dans le bon dossier !
+
+ÉTAPE 1 : Naviguer vers le dossier du projet
+---------------------------------------------
+Dans votre terminal PowerShell, exécutez :
+
+    cd "E:\Projet ETSIA\TEST PHARMACIEN"
+
+
+ÉTAPE 2 : Ajouter Node.js au PATH et lancer
+--------------------------------------------
+Copiez-collez ces 2 lignes :
+
+    $env:Path += ";C:\Program Files\nodejs"
+    npm run dev
+
+
+OU utilisez le chemin complet (si la première méthode ne fonctionne pas) :
+    
+    cd "E:\Projet ETSIA\TEST PHARMACIEN"
+    & "C:\Program Files\nodejs\npm.cmd" run dev
+
+
+===========================================
+COMMANDES COMPLÈTES (copiez tout) :
+===========================================
+
+cd "E:\Projet ETSIA\TEST PHARMACIEN"
+$env:Path += ";C:\Program Files\nodejs"
+npm run dev
+
+===========================================
+Une fois l'application lancée, ouvrez :
+http://localhost:5173
+
+Mode démo : Utilisez n'importe quel email/mot de passe pour vous connecter !
+Exemple : test@demo.com / test123
+===========================================
