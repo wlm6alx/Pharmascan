@@ -82,6 +82,8 @@ export default function Medications() {
   const [sortAsc, setSortAsc] = useState(true)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [medicationToDelete, setMedicationToDelete] = useState(null)
+  const [photoPreviews, setPhotoPreviews] = useState([])
+  const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -93,6 +95,8 @@ export default function Medications() {
     form: '',
     manufacturer: '',
     price: 0,
+    photoFiles: [],
+    photoUrls: [],
   })
 
   useEffect(() => {
@@ -210,7 +214,20 @@ export default function Medications() {
   }
 
   const handleChange = (e) => {
-    const { name, value } = e.target
+    const { name, value, type, files } = e.target
+    if (type === 'file') {
+      const selected = Array.from(files || [])
+      if (selected.length > 3) {
+        alert('Maximum 3 photos.')
+      }
+      const limited = selected.slice(0, 3)
+      setPhotoPreviews((prev) => {
+        prev.forEach((u) => URL.revokeObjectURL(u))
+        return limited.map((f) => URL.createObjectURL(f))
+      })
+      setFormData((prev) => ({ ...prev, photoFiles: limited }))
+      return
+    }
     if (name === 'barcode') {
       const digits = value.replace(/\D/g, '').slice(0, 14)
       setFormData((prev) => ({ ...prev, barcode: digits }))
@@ -222,9 +239,19 @@ export default function Medications() {
     }))
   }
 
+  const setPrimaryExistingPhoto = (idx) => {
+    setFormData((prev) => {
+      const arr = Array.isArray(prev.photoUrls) ? [...prev.photoUrls] : []
+      if (idx < 0 || idx >= arr.length) return prev
+      const [picked] = arr.splice(idx, 1)
+      return { ...prev, photoUrls: [picked, ...arr] }
+    })
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
+      setSaving(true)
       if (!formData.form.trim()) {
         alert('Veuillez indiquer la forme galénique (liste ou saisie « Autre »).')
         return
@@ -257,6 +284,19 @@ export default function Medications() {
         return
       }
 
+      const newPhotos = formData.photoFiles || []
+      const existingPhotoUrls = formData.photoUrls || []
+      const hasNewPhotos = newPhotos.length > 0
+
+      if (!hasNewPhotos && existingPhotoUrls.length < 1) {
+        alert('Ajoutez au moins 1 photo du médicament.')
+        return
+      }
+      if (hasNewPhotos && (newPhotos.length < 1 || newPhotos.length > 3)) {
+        alert('Sélectionnez entre 1 et 3 photos.')
+        return
+      }
+
       const { data: pharmacist } = await supabase
         .from('pharmacists')
         .select('pharmacy_id')
@@ -280,22 +320,61 @@ export default function Medications() {
         manufacturer: formData.manufacturer || '',
         price: formData.price || 0,
         pharmacy_id: pharmacist.pharmacy_id,
+        photo_urls: existingPhotoUrls,
+      }
+
+      const uploadMedicationPhotos = async (medicationId, filesToUpload) => {
+        const urls = []
+        for (let i = 0; i < filesToUpload.length; i++) {
+          const f = filesToUpload[i]
+          const ext = (f?.name || '').split('.').pop()?.toLowerCase() || 'jpg'
+          const path = `${user.id}/medications/${medicationId}/photo-${i + 1}.${ext}`
+          const { error: uploadError } = await supabase.storage
+            .from('medication-photos')
+            .upload(path, f, { upsert: true })
+          if (uploadError) throw uploadError
+          const { data: { publicUrl } } = supabase.storage
+            .from('medication-photos')
+            .getPublicUrl(path)
+          urls.push(publicUrl)
+        }
+        return urls
       }
 
       if (editingMedication) {
+        const medicationId = editingMedication.id
         const { error } = await supabase
           .from('medications')
           .update(medicationData)
-          .eq('id', editingMedication.id)
+          .eq('id', medicationId)
 
         if (error) throw error
+        if (hasNewPhotos) {
+          const urls = await uploadMedicationPhotos(medicationId, newPhotos)
+          const { error: photoError } = await supabase
+            .from('medications')
+            .update({ photo_urls: urls })
+            .eq('id', medicationId)
+          if (photoError) throw photoError
+        }
         alert('Médicament mis à jour avec succès')
       } else {
-        const { error } = await supabase
+        const { data: inserted, error } = await supabase
           .from('medications')
           .insert(medicationData)
+          .select('id')
+          .single()
 
         if (error) throw error
+        if (!inserted?.id) throw new Error('ID médicament introuvable après insertion.')
+        if (hasNewPhotos) {
+          const urls = await uploadMedicationPhotos(inserted.id, newPhotos)
+          const { error: photoError } = await supabase
+            .from('medications')
+            .update({ photo_urls: urls })
+            .eq('id', inserted.id)
+          if (photoError) throw photoError
+        }
         alert('Médicament ajouté avec succès')
       }
 
@@ -312,10 +391,18 @@ export default function Medications() {
         form: '',
         manufacturer: '',
         price: 0,
+        photoFiles: [],
+        photoUrls: [],
+      })
+      setPhotoPreviews((prev) => {
+        prev.forEach((u) => URL.revokeObjectURL(u))
+        return []
       })
       fetchMedications()
     } catch (error) {
       alert('Erreur: ' + error.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -332,6 +419,12 @@ export default function Medications() {
       form: medication.form || '',
       manufacturer: medication.manufacturer || '',
       price: medication.price != null ? Number(medication.price) : 0,
+      photoFiles: [],
+      photoUrls: medication.photo_urls || [],
+    })
+    setPhotoPreviews((prev) => {
+      prev.forEach((u) => URL.revokeObjectURL(u))
+      return []
     })
     setShowModal(true)
   }
@@ -392,6 +485,12 @@ export default function Medications() {
                 form: '',
                 manufacturer: '',
                 price: 0,
+                photoFiles: [],
+                photoUrls: [],
+              })
+              setPhotoPreviews((prev) => {
+                prev.forEach((u) => URL.revokeObjectURL(u))
+                return []
               })
               setShowModal(true)
             }}
@@ -647,7 +746,16 @@ export default function Medications() {
                           low ? 'text-red-900' : 'text-gray-900'
                         }`}
                       >
-                        {medication.name}
+                        <div className="flex items-center gap-2">
+                          {Array.isArray(medication.photo_urls) && medication.photo_urls[0] ? (
+                            <img
+                              src={medication.photo_urls[0]}
+                              alt="Photo produit"
+                              className="h-6 w-6 rounded-md border border-gray-200 object-cover"
+                            />
+                          ) : null}
+                          <span className="truncate">{medication.name}</span>
+                        </div>
                       </td>
                       <td
                         className={`hidden whitespace-nowrap px-3 py-3 text-sm sm:table-cell sm:px-4 ${
@@ -754,6 +862,21 @@ export default function Medications() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Photo principale (affichée en premier) */}
+              <div>
+                <div className="flex justify-center p-2">
+                  {(photoPreviews[0] || formData.photoUrls?.[0]) ? (
+                    <img
+                      src={photoPreviews[0] || formData.photoUrls?.[0]}
+                      alt="Photo principale du médicament"
+                      className="h-52 w-52 rounded-xl object-cover shadow-sm"
+                    />
+                  ) : (
+                    <div className="h-52 w-52 rounded-xl border-2 border-dashed border-gray-300 bg-white" />
+                  )}
+                </div>
+              </div>
+
               {/* Nom du médicament */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2.5">
@@ -979,6 +1102,75 @@ export default function Medications() {
                 />
               </div>
 
+              {/* Photos du médicament */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2.5">
+                  Photos du médicament (1 à 3)
+                </label>
+                <input
+                  type="file"
+                  name="photoFiles"
+                  accept="image/*"
+                  multiple
+                  onChange={handleChange}
+                  className="w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-2 file:border-[#0b8fac] file:text-[#0b8fac] file:bg-[#0b8fac]/10 hover:file:bg-[#0b8fac]/15"
+                />
+                {formData.photoFiles?.length > 0 ? (
+                  <p className="mt-2 text-xs text-[#0a7085] font-medium">
+                    {formData.photoFiles.length} photo(s) sélectionnée(s).
+                  </p>
+                ) : null}
+                <div className="mt-3">
+                  {photoPreviews.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {photoPreviews.map((src, idx) => (
+                        <div key={`${src}-${idx}`} className="relative">
+                          <img
+                            src={src}
+                            alt={`Photo ${idx + 1}`}
+                            className={`h-16 w-16 rounded-lg border object-cover ${
+                              idx === 0 ? 'border-[#0b8fac]' : 'border-gray-200'
+                            }`}
+                          />
+                          {idx === 0 ? (
+                            <span className="absolute -top-2 -left-2 rounded-full bg-[#0b8fac] px-2 py-0.5 text-[10px] font-semibold text-white">
+                              principale
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : formData.photoUrls?.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {formData.photoUrls.slice(0, 3).map((src, idx) => (
+                        <button
+                          key={`${src}-${idx}`}
+                          type="button"
+                          onClick={() => setPrimaryExistingPhoto(idx)}
+                          className="relative"
+                          title={idx === 0 ? 'Photo principale' : 'Définir comme principale'}
+                        >
+                          <img
+                            src={src}
+                            alt={`Photo ${idx + 1}`}
+                            className={`h-16 w-16 rounded-lg border object-cover ${
+                              idx === 0 ? 'border-[#0b8fac]' : 'border-gray-200'
+                            }`}
+                          />
+                          {idx === 0 ? (
+                            <span className="absolute -top-2 -left-2 rounded-full bg-[#0b8fac] px-2 py-0.5 text-[10px] font-semibold text-white">
+                              principale
+                            </span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500 mt-2">Aucune photo sélectionnée.</p>
+                  )}
+                </div>
+              </div>
+
               {/* Boutons d'action */}
               <div className="flex gap-3 pt-4 border-t-2 border-gray-100">
                 <button
@@ -987,15 +1179,24 @@ export default function Medications() {
                     setShowModal(false)
                     setEditingMedication(null)
                   }}
-                  className="flex-1 px-6 py-3.5 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-200 shadow-md hover:shadow-lg border-2 border-gray-300 hover:border-gray-400"
+                  className="flex-1 px-6 py-3.5 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-200 shadow-md hover:shadow-lg border-2 border-gray-300 hover:border-gray-400 disabled:opacity-60"
+                  disabled={saving}
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-6 py-3.5 bg-[#0b8fac] text-white rounded-xl font-semibold hover:bg-[#0a7085] transition-all duration-200 shadow-lg hover:shadow-xl border-2 border-[#0b8fac] hover:border-[#0a7085] transform hover:scale-105"
+                  className="flex-1 px-6 py-3.5 bg-[#0b8fac] text-white rounded-xl font-semibold hover:bg-[#0a7085] transition-all duration-200 shadow-lg hover:shadow-xl border-2 border-[#0b8fac] hover:border-[#0a7085] transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed"
+                  disabled={saving}
                 >
-                  Enregistrer
+                  {saving ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      Enregistrement…
+                    </span>
+                  ) : (
+                    'Enregistrer'
+                  )}
                 </button>
               </div>
             </form>

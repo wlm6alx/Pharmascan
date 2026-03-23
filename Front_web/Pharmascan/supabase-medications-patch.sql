@@ -5,3 +5,6 @@ ALTER TABLE public.medications
 
 ALTER TABLE public.medications
   ADD COLUMN IF NOT EXISTS production_date DATE;
+
+ALTER TABLE public.medications
+  ADD COLUMN IF NOT EXISTS photo_urls TEXT[] DEFAULT '{}'::text[];

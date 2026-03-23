@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS medications (
   quantity INTEGER DEFAULT 0,
   available BOOLEAN DEFAULT TRUE,
   price NUMERIC(12, 2) DEFAULT 0,
+  photo_urls TEXT[] DEFAULT '{}'::text[],
   production_date DATE,
   expiration_date DATE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

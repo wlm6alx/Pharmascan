@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import PharmaScanLogo from '../components/PharmaScanLogo'
 import { ensurePharmacistRow } from '../lib/pharmacyHelpers'
@@ -16,27 +16,81 @@ export default function Login() {
   const pendingEmailConfirmation = location.state?.pendingEmailConfirmation
   const registrationComplete = location.state?.registrationComplete
 
+  const signInWithFallback = async (emailValue, passwordValue) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: emailValue,
+      password: passwordValue,
+    })
+
+    if (!error) return data
+
+    const msg = String(error?.message || '')
+    if (!(msg === 'Failed to fetch' || /NetworkError/i.test(msg))) {
+      throw error
+    }
+
+    // Fallback : appel direct de l'endpoint Auth REST
+    const resp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: emailValue,
+        password: passwordValue,
+      }),
+    })
+
+    const payload = await resp.json().catch(() => ({}))
+    if (!resp.ok) {
+      throw new Error(
+        payload?.msg ||
+          payload?.error_description ||
+          payload?.error ||
+          `Erreur de connexion (${resp.status})`
+      )
+    }
+
+    const accessToken = payload?.access_token
+    const refreshToken = payload?.refresh_token
+    if (!accessToken || !refreshToken) {
+      throw new Error('Réponse Auth invalide: session introuvable.')
+    }
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    })
+    if (sessionError) throw sessionError
+
+    return {
+      user: sessionData?.user || payload?.user || null,
+      session: sessionData?.session || null,
+    }
+  }
+
   const handleLogin = async (e) => {
     e.preventDefault()
     setLoading(true)
     setError('')
 
     try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (signInError) throw signInError
+      const authData = await signInWithFallback(email, password)
+      const authUser = authData?.user
+      if (!authUser?.id) {
+        throw new Error('Session utilisateur invalide. Reconnectez-vous.')
+      }
 
       let { data: profile } = await supabase
         .from('pharmacists')
         .select('*')
-        .eq('user_id', data.user.id)
+        .eq('user_id', authUser.id)
         .maybeSingle()
 
       if (!profile) {
-        profile = await ensurePharmacistRow(supabase, data.user)
+        profile = await ensurePharmacistRow(supabase, authUser)
       }
 
       if (!profile) {
@@ -48,7 +102,14 @@ export default function Login() {
 
       navigate('/dashboard')
     } catch (err) {
-      setError(err.message || 'Erreur lors de la connexion')
+      const msg = String(err?.message || '')
+      if (msg === 'Failed to fetch' || /NetworkError/i.test(msg)) {
+        setError(
+          'Échec de requête vers Supabase (Failed to fetch). Vérifiez le réseau du navigateur (proxy/VPN/extensions) et réessayez.'
+        )
+      } else {
+        setError(err.message || 'Erreur lors de la connexion')
+      }
     } finally {
       setLoading(false)
     }
