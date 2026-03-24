@@ -71,29 +71,32 @@ export async function registerUser(req: Request): Promise<Response> {
     const surname       = typeof body.surname   === "string" ?  body.surname.trim()             : null;
     const phone         = typeof body.phone     === "string" ?  body.phone.trim()               : null;
     
-    //  Détermination du rôle - le backend accepte "patient" ou "pharmacien" uniquement
-    //  Le rôle "admin" est impossible via cette route (sécurité)
-    //  Toute autre valeur (ou absence) -> user
-    const roleRaw       = typeof body.role      === "string" ?  body.role.trim().toLowerCase()  : "";
-    const role: "patient" | "pharmacien" | "user" =
-        roleRaw === "pharmacien"    ? "pharmacien"  :
-        roleRaw === "patient"    ? "patient" :
-        "patient";
+    //  Le rôle est toujours 'user' à la création, neutre sans droits métier.
+    //  il sera promu 'patient' par POST /users/patient ou 'pharmacien' par 
+    //                  POST /users/pharmacien
+    //  Cela évite d'exposer un rôle partiel (pharmacien sans justificatif, 
+    //  patient sans profil) et attends la validation finale du compte pour selon son rôle donner ses privilèges et contraintes.
+    const role       = "user" as const;
 
     //  Validation des champs obligatoires
     if (!name) return errorResponse("Le champ 'name' est obligatoire.", 400);
     if (!username) return errorResponse("Le champ 'username' est obligatoire.", 400);
     if (!email) return errorResponse ("Le champ 'email' est obligatoire.", 400);
     if (!password) return errorResponse("Le champ 'password' est obligatoire.", 400);
-    if (role !== "pharmacien" || "patient") return errorResponse("Le champ rôle est soit pharmacien soit patient.", 403);
 
     //  Validation username - miroir du trigger trg_update_own_username (min 3 chars)
     if (username.length < 3) {
         return errorResponse("Le username doit contenir au moins 3 caractères.", 400);
     }
 
+    //  Protection de username
+    const usernameRegex = /^[a-zA-Z0-9_]{3,}$/;
+    if(!usernameRegex.test(username)) {
+        return errorResponse("Username invalide.", 400);
+    }
+
     //  Validation email - miroie du domaine email_type SQL
-    const emailRegex = /^[A-Za-z0-9._%\-]+@[A-Za-a0-9.\-]+\.[A-Za-z]{2,}$/;
+    const emailRegex = /^[A-Za-z0-9._%\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/;
     if (!emailRegex.test(email)) {
         return errorResponse("Format d'email invalide.", 400);
     }

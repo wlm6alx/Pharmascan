@@ -35,7 +35,9 @@ import {extractToken,
     getAuthenticatedUser,
     successResponse,
     errorResponse
- }                                      from "@/middleware/auth.ts"
+ }                                      from "@/middleware/auth.ts";
+ import { setUserState }                from "@/routes/users/toogleUserState.ts";
+
 
 // ======================================================================
 //  Handler principal
@@ -73,20 +75,12 @@ export async function logoutUser(req: Request): Promise<Response> {
     
     // ---  Etape 2 :   Mise à jour userState -> false  -----------------
     //  Client admin pour garantir la mise à jour même si le JWT vient d'être révoqué
-    const adminResult = getAdminClient(getAdminSecret(), "admin");
-    if ("error" in adminResult) {
-        return errorResponse("Erreur de configuration serveur.", 500);
-    }
-    
-    const { error: stateError }= await adminResult.client
-        .from("users")
-        .update({ userState: false })
-        .eq("id", user.id);
+    const stateResult = await setUserState(user.id, false);
 
-    if (stateError) {
+    if (!stateResult.success) {
         //  Erreur critique :   Le slot de connexion n'est pas libéré
         //  L'utilisateur sera bloqué jusqu'à expiration du JWT ou intervention admin
-        console.error(`[logoutUser] Echec mise à jour userState pour userId=${user.id}: `, stateError.message);
+        console.error(`[logoutUser] Echec mise à jour userState pour userId=${user.id}: `);
         return errorResponse(
             "Déconnexion partielle. Contactez l'administration si vous n epouvez plus vous connecter.",
             500

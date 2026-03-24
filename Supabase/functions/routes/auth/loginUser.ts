@@ -49,6 +49,7 @@ import { extractToken,
     successResponse,
     errorResponse
  }                                                      from "@/middleware/auth.ts";
+ import { setUserState }                                from "@/routes/users/toogleUserState.ts";
 
 // ======================================================================================
 //  Handler principal
@@ -131,12 +132,9 @@ export async function loginUser(req: Request): Promise<Response> {
     //  --- Etape 4 :   Mise à jour de userState -> true    -----------------------------
     //  L'utilisateur est maintenant connecté sur cet apareil
     //  userState = true bloque toute nouvelle connexion tant qu'il st connecté
-    const { error: stateError } = await adminClient
-        .from("users")
-        .update({ userState: true })
-        .eq("id", userRown.id);
+    const stateResult = await setUserState(userRown.id, true);
 
-    if (stateError) {
+    if (!stateResult.success) {
         //  Rollback de la session Supabase si la mise à jour échoue
         //  pour éviter un JWT valide sans userState = false
         await supabase.auth.signOut();

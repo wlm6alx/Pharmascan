@@ -1,6 +1,6 @@
 /**
  * =====================================================================================
- *  routes/users/toogleUserState.ts -   PUT/admin/user/state
+ *  routes/users/toogleUserState.ts -   PUT /admin/user/state
  * =====================================================================================
  * 
  * Consulte ou modifie l'état de connexio d'un utilisateur (uerState).
@@ -44,7 +44,8 @@
  */
 
 import { getAdminClient, getAdminSecret }               from "@/supabaseAdminClient.ts";
-import { extractToken,
+import { 
+    extractToken,
     getAuthenticatedUser,
     requireRole,
     successResponse,
@@ -73,7 +74,9 @@ export async function toogleUserState(req: Request): Promise<Response> {
     const user = authResult.user;
 
     // ---  Garde 3 :   Admin uniquement    --------------------------------------------
-    if (!requireRole(user, ["admin"])) return errorResponse("Accès réservé à l'administrateur.", 403);
+    if (!requireRole(user, ["admin"])) {
+        return errorResponse("Accès réservé à l'administrateur.", 403);
+    }
 
     // ---  Etape 1 :   Lectuer et validation du body JSON  ----------------------------
     let body: Record<string, unknown>;
@@ -84,7 +87,7 @@ export async function toogleUserState(req: Request): Promise<Response> {
     }
 
     const targetUserId  = typeof body.userId    === "string"    ? body.userId.trim()    : null;
-    const newState      = typeof body.userState === "boolean"   ? body.userState        : null;
+    const newState      = false;
 
     if (!targetUserId) return errorResponse("le champ 'userId' (UUID) est obligatoire.", 400);
     if (newState === null) return errorResponse("le champ 'userState' (boolean) est obigatoire.", 400);
@@ -121,7 +124,7 @@ export async function toogleUserState(req: Request): Promise<Response> {
         const stateLabel = newState ? "connecté" : "déconnecté";
         return successResponse(
             { id: targetUser.id, username: targetUser.username, userState: targetUser.userState},
-            `Cet utilisateur est déjà marqué comme ${stateLabel}.`,
+            `${targetUser.username} est déjà déconnecté.`,
             200
         );
     }
@@ -141,17 +144,26 @@ export async function toogleUserState(req: Request): Promise<Response> {
         return errorResponse("Impossible de modifier l'état de connexion.", 500);
     }
 
-    const message = newState
-        ? `${targetUser.username} marqué comme connecté.`
-        : `Session de ${targetUser.username} libérée - reconnexion possible`;
-
-    return successResponse(updated, message, 200);
+    return successResponse(updated,
+        `Session de ${targetUser.username} libérée. Reconnexion possible via login.` 
+        , 200);
 }
 
 // =====================================================================================
 //  Utilitaire interne exporté
 // =====================================================================================
 
+/**
+ *  Met à jour userState d'un utilisateur par son UUID.
+ * 
+ * Centralisé ici pour éviter la duplication entre loginUser et logoutUser.
+ * La mise à jour de userState est réservée à cette fonction et au handler 
+ * toogleUserState() - aucun utilisateur ne peut modifier son propre userState.
+ * 
+ * @param userId    UUID de l'utilisateur à mettre à jour
+ * @param state     true (connexion) | false (déconnexion)
+ * @returns         { success: true } ou { success: false }
+ */
 export async function setUserState(
     userId: string,
     state: boolean
