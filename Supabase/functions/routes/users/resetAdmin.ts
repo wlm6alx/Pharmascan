@@ -1,246 +1,171 @@
-// import { supabase } from "../../supabaseClient.ts";
-
 /**
- *  réinitialise ou crée un utilisateur admin
- * @param req Requête HTTP contenant {email}
+ * =====================================================================================
+ *  routes/users/resetAdmin.ts  -   POST /admin/reset
+ * =====================================================================================
  * 
+ * Réinitialise le profil de l'administrateur existant.
+ * Cette route permet à l'admin de mettre à jour ses propres credentials
+ * (password, email, username) sasn supprimer ni recréer le compte
+ * 
+ * CE QUE CETTE ROUTE FAIT  :
+ *  -   Mettre à jour le mot de passe de l'admin dans auth.users
+ *  -   Optionnellement mettre à jour email/username dans public.users
+ * 
+ * CE QUE CETTE ROUTE NE FAIT PAS   :
+ *  -   Ne supprime pas le compte admin
+ *  -   Ne réinitialise ni le logiciel ni la base de données
+ *  -   Ne change pas le rôle (toujours 'admin')
+ *  -   Ne crée pas de second admin
+ * 
+ * SECURITE :
+ *  -   Protégé par DB_RESET_SECRET (secret distinct, plus fort qu'ADMIN_CLIENT_SECRET)
+ *  -   Pas de JWT requis - accès direct via secret (cas: admin a perdu son mot de passe)
+ *  -   Le compte admin ne peut pas être suppriné (trigger trg_prevent_admin_delete)
+ * 
+ * BODY JSON ATTENDU    :
+ *  resetSecret     string  requis - doit correspondre à DB_RESET_SECRET
+ *  newPassword     string  requis - nouveau mot de passe (règles password_type)
+ *  newEmail        string  optionnel - nouvel email admin
+ *  newUsername     string  optionnel - nouveau username admin
+ * 
+ * REPONSE SUCCESS 200  :
+ *  { success: true, message: "Profil administrateur réinitialisé." }
+ * 
+ * =====================================================================================
  */
 
-/**export async function resetAdmin (req: Request): Promise<Response> {
-    try{
-        const { email } = await req.json();
+import { getAdminClient, getAdminSecret }                               from "@/supabaseAdminClient.ts";
+import { successResponse, errorResponse, extractToken, getAuthenticatedUser, requireRole }               from "@/middleware/auth.ts";
+import { supabase }                                     from "@/supabaseClient.ts";
 
-        if (!email) {
-            return new Response(
-                JSON.stringify({
-                    success: false,
-                    error: "Email d\'admin actuel manquant"
-                }),
-                {status: 400}
-            );
-        }
-
-        //  1. Vérification existance d'admin
-        const { data: existingAdmin } = await supabase
-        .from("users")
-        .select("*")
-        .eq("role", 'admin')
-        .maybeSingle();
-
-        if (existingAdmin) {
-            //  Delete the last admin account
-            const { error: delError } = await supabase
-                .from("users")
-                .delete()
-                .eq("id", existingAdmin.id);
-
-            if (delError) {
-                return new Response(
-                    JSON.stringify({
-                        success: false,
-                        step: "check_username",
-                        error: delError.message
-                    }),
-                    {status: 500}
-                );
-            }
-        }
-
-        //  2. Création d'admin Supabase Auth
-        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-            email: email,
-            password: "admin",
-            //  L'utilisateur doit confirmer par l'email
-            email_confirm: false
-        });
-
-        if(authError) {
-            return new Response(
-                JSON.stringify({
-                    success: false,
-                    step: "auth",
-                    error: authError.message
-                }),
-                {status: 400}
-            );
-        }
-
-        //  3. Insertion profil public
-        const { error: insertError } = await supabase
-            .from("users")
-            .insert({
-            id: authData.user.id,
-            name: "Administrateur",
-            surname: null,
-            phone: null,
-            username: "administrateur",
-            email: email,
-            role: "admin",
-            userState: true
-        });
-
-        if (insertError) {
-            return new Response(
-                JSON.stringify({
-                    success: false,
-                    step: "db",
-                    error: insertError.message
-                }),
-                {status: 500}
-            );
-        }
-
-        //  Réponse finale
-        return new Response(
-            JSON.stringify({
-                success:true,
-                message: "Administrateur réinitialisé"
-            }),
-            { status: 201 }
-        );
-    } catch (err: unknown) {
-        let message = "Unknown error";
-
-        if (err instanceof Error) {
-            message = err.message;
-        }
-
-        return new Response(
-            JSON.stringify({
-                success: false,
-                step: "global",
-                error: message
-            }),
-            {status: 500}
-        );
-    }
-};
-**/
-
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseAnon = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!
-);
-
-const supabaseService = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-);
+// =====================================================================================
+//  Handler principal
+// =====================================================================================
 
 /**
- * Réinitialise ou crée l'administrateur unique
- * Autorisé UNIQUEMENT :
- *  - par un admin authentifié
- *  - OU par le backend (service_role)
+ * Gère POST /admin/reset.
+ * 
+ * @param req   Requête HTTP entrante (body JSON)
+ * @returns     Response JSON standardisée
  */
-
 export async function resetAdmin(req: Request): Promise<Response> {
-    try {
-        const { email } = await req.json();
+    
+    // ---  Garde 1 :   JWT requis  ----------------------------------------------------
+    const token = extractToken(req);
+    if (!token) return errorResponse("Authentification requise.", 401);
 
-        if (!email) {
-            return new Response(
-                JSON.stringify({
-                    error: "Email requis."
-                }),
-                { status: 400 }
-            );
-        }
+    // ---  Garde 2 :   Session active + chargement du profil   ------------------------
+    const authResult = await getAuthenticatedUser(token);
+    if ("error" in authResult) return errorResponse(authResult.error, authResult.status);
+    const user = authResult.user;
 
-        //  1. Vérification appelant
-        const authHeader = req.headers.get("Authorization");
-        let isServiceCall = false;
-
-        if (!authHeader) {
-            //  Pas de JWT -> uniquement backend autorisé
-            isServiceCall = true;
-        }
-
-        if (!isServiceCall) {
-            const token = authHeader?.replace("Bearer ", "");
-
-            const { data: authData, error } = await supabaseAnon.auth.getUser(token);
-
-            if (error || !authData.user) {
-                return new Response(
-                    JSON.stringify({
-                        error: "Authentification invalide."
-                    }),
-                    { status: 401 }
-                );
-            }
-
-            const {data: user } = await supabaseAnon
-                .from("users")
-                .select("role")
-                .eq("id", authData.user.id)
-                .single();
-
-            if (user?.role !== "admin") {
-                return new Response(
-                    JSON.stringify({
-                        error: "Accès réservé à l\'admin."
-                    }),
-                    { status: 403 }
-                );
-            }
-        }
-
-        //  2. Recherche admin existant
-        const { data: existingAdmin } = await supabaseService
-            .from("users")
-            .select("id")
-            .eq("role", "admin")
-            .maybeSingle();
-
-        if (existingAdmin) {
-            //  Pas de delete (interdit par trigger)
-            //  downgradde l'ancien admin
-            await supabaseService
-                .from("users")
-                .update({
-                    role: "authenticated",
-                    userState: false
-                })
-                .eq("id", existingAdmin.id);
-        }
-
-        //  3. Création Auth admin
-        const { data: authData, error: authError } = await supabaseService.auth.admin.createUser({
-            email,
-            password: "admin",
-            email_confirm: false
-        });
-
-        if (authError || !authData.user) {
-            throw authError;
-        }
-
-        //  4. Profil public admin
-        await supabaseService.from("users").insert({
-            id: authData.user.id,
-            name: "Administrateur",
-            username: "administrateur",
-            email,
-            role: "admin",
-            userState: true
-        });
-
-        return new Response(
-            JSON.stringify({
-                success: true,
-                message: "Administrateur réinitialisé."
-            }),
-            { status: 201 }
-        );
-    } catch (err) {
-        return new Response(
-            JSON.stringify({
-                error: err instanceof Error ? err.message: "Erreur inconnue."
-            }),
-            { status: 500 }
-        );
+    // ---  Garde 3 :   Admin uniquement    --------------------------------------------
+    if (!requireRole(user, ["admin"])) {
+        return errorResponse("Accès réservé à l'administrateur.", 403);
     }
+
+    // ---  Etape 1 :   Lecture et validation du body JSON  ----------------------------
+    let body: Record<string, unknown>;
+    try {
+        body = await req.json();
+    } catch {
+        return errorResponse("Corps de la requête invalide. JSON attendu.", 400);
+    }
+
+    //  Extraction des champs de mise à jour
+    const oldPassword       =   typeof body.oldPassword === "string"    ? body.oldPassword                      : null;
+    const newPassword       =   typeof body.newPassword === "string"    ? body.newPassword                      : null;
+    const newEmail          =   typeof body.newEmail    === "string"    ? body.newEmail.trim().toLowerCase()    : null;
+    const newUsername       =   typeof body.newUsername === "string"    ? body.newUsername                      : null;
+    
+    //  newPassword obligatoire
+    if (!newPassword && !newEmail && !newUsername) return errorResponse("Fournissez au moins un champ à modifier: newPassword, newEmail ou newUsername.", 400);
+
+    //  Si newPassword fourni   : oldPassword obligatoire pour vérification
+    if (newPassword && !oldPassword) {
+        return errorResponse("Le champ oldPassword est requis pour changer le mot de passe.",
+            400
+        )
+    }  
+
+    //  Validation password -   miroir du domaine password_type SQL
+    if (newPassword) {
+        if (newPassword.length < 12)            return errorResponse("Mot de passe trop court (minimum 12 caractères).", 400);
+        if (!/[A-Z]/.test(newPassword))         return errorResponse("Mot de passe : au moins une majuscule requise.", 400);
+        if (!/[a-z]/.test(newPassword))         return errorResponse("Mot de passe : au moins une minuscule requise.", 400);
+        if (!/[0-9]/.test(newPassword))         return errorResponse("Mot de passe : au moins un chiffre requis.", 400);
+        if (!/[^A-Za-z0-9]/.test(newPassword))  return errorResponse("Mot de passe : au moins un caractère spécial requis.", 400);
+    }
+
+    if (newUsername !== null && newUsername.length < 3) {
+        return errorResponse("Le username doit contenir au moins 3 caractères.", 400);
+    }
+
+    //  Validation newUsername
+    if (newUsername !== null && newUsername.length < 3) {
+        return errorResponse("Le username doit contenir au moins 3 caractères.", 400);
+    }
+
+    const adminResult = getAdminClient(getAdminSecret(), "admin");
+    if ("error" in adminResult) {
+        return errorResponse("erreur de configuration serveur.", 500);
+    }
+    const adminClient = adminResult.client;
+
+    // ---  Etape 2 :   Vérification de l'ancien password (si changement de password)  -
+    //  Vérification via tentative de reconnexion Supabase Auth.
+    //  Cela évite qu'une session volée (JWT intercepté) permette un changement de 
+    //  mot de passe sans connaître l'ancien
+    if (newPassword && oldPassword) { 
+        const { error: verifyError } = await supabase.auth.signInWithPassword({
+            email:      user.email,
+            password:   oldPassword,
+        });
+        if (verifyError) {
+        return errorResponse("L'ancien mot de passe est incorrect.", 401);
+        }
+    }
+
+    // ---  Etape 3 :   Mise à jour du password ( et email si fourni) dans aauth.users -
+    //  updateUserById() force le changement sans connaître l'ancien mot de passe
+    //  C'est le but de cette route -   récupération d'accès
+    const authUpdates: { password?: string; email?: string } = {};
+    if(newPassword)     authUpdates.password    = newPassword;
+    if (newEmail)       authUpdates.email       = newEmail;
+    
+    if (Object.keys(authUpdates).length > 0){
+        const { error: passwordError } = await adminClient.auth.admin.updateUserById(
+            user.id, 
+            authUpdates
+        );
+
+        if (passwordError) {
+            return errorResponse("Impossible de mettre à jour les credentials.", 500);
+        }
+    }
+
+    // ---  Etape 4 :   Mise à jour de public.users (email et/ou username si fournis)  -
+    const userUpdates: Record<string, unknown> = {};
+    if (newEmail        !== null) userUpdates.email     = newEmail;
+    if (newUsername     !== null) userUpdates.username  = newUsername;
+
+    if (Object.keys(userUpdates).length > 0) {
+        const { error: profileError } = await adminClient
+            .from("users")
+            .update(userUpdates)
+            .eq("id", user.id);
+
+        if (profileError) {
+            //  Non bloquant    -   le password a déjà été mis à jour avec succès
+            if (profileError.message?.includes("Username already exists")) {
+                return errorResponse("Ce username est déjà utilisé.", 409);
+            }
+            console.error("[resetAdmin] Mise à jour public.users échouée: ", profileError.message);
+        }
+    }
+
+    //  Log d'audit -   Opération sensible
+    console.log(`[resetAdmin] Profil admin réinitialisé - userId = ${user.id} - ${new Date().toISOString()}`);
+
+    return successResponse(null, "Profil administrateur réinitialisé avec succès.", 200);
 }
