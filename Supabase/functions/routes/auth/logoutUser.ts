@@ -30,7 +30,7 @@
 import { createAuthenticatedClient }    from "@/supabaseClient.ts";
 import { getAdminClient,
     getAdminSecret
- }                                      from "../../supabaseAdminClient.ts";
+ }                                      from "@/supabaseAdminClient.ts";
 import {extractToken,
     getAuthenticatedUser,
     successResponse,

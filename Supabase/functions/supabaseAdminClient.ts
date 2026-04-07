@@ -46,7 +46,7 @@ const SERVICE_ROLE_KEY: string = Deno.env.get("SERVICE_ROLE_KEY")!;
 const SUPABASE_URL: string = Deno.env.get("SUPABASE_URL")!;
 
 //  Secret protégeant les routes /admin/* - min 32 chars.
-const ADMIN_CLIENT_SECRET: string = Deno.env.get("ADMIN_CLINT_SECRET")!;
+const ADMIN_CLIENT_SECRET: string = Deno.env.get("ADMIN_CLIENT_SECRET")!;
 
 //  Secret protégeant la route /admin/reset - min 48 chars.
 const DB_RESET_SECRET: string = Deno.env.get("DB_RESET_SECRET")!;

@@ -93,9 +93,9 @@ export async function createJustifPharmacie(req: Request): Promise<Response> {
     // ---  Etpae 1 :   Récupération de la pharmacie du pharmacien  -------
     //  Un justificatif de pharmacie est lié à une pharmacie - 
     //  le pharmacien doit être affilié (pharamcie_id NOT NULL dans public.pharmacien)
-    const authClien = createAuthenticatedClient(token);
+    const authClient = createAuthenticatedClient(token);
 
-    const { data: pharmacienRow, error: pharmError } = await authClien
+    const { data: pharmacienRow, error: pharmError } = await authClient
         .from("pharmacien")
         .select("pharmacie_id, responsability")
         .eq("user_id", user.id)

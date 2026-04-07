@@ -3,7 +3,7 @@
  *  routes/users/toogleUserState.ts -   PUT /admin/user/state
  * =====================================================================================
  * 
- * Consulte ou modifie l'état de connexio d'un utilisateur (uerState).
+ * Consulte ou modifie l'état de connexion d'un utilisateur (uerState).
  * 
  * SEMANTIQUE DE userState  :
  *  userState = true    -> Utilisateur actuellement connecté sur un appareil

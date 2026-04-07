@@ -6,6 +6,7 @@
  * Cette novelle pharamcie (sans justificatif) et lie le pharamcien appelant
  * en tant que gérant.
  * 
+ * -----------------------------------------------------------------
  * FLUX COMPLET DE CREATION DE PHARMACIE    :
  * 
  *  Prérequis   :   Flux pharamcien terminé (role='pharamcien', profil dans public.pharamcien)
@@ -26,12 +27,14 @@
  *          ->  Valide  :   POST /admin/pharmacie/validate  -> validate = false, exist = true
  *          ->  Refuse  :   POST /admin/pharmacie/refuse    -> pharmaciens détchés
  * 
+ * -----------------------------------------------------------------
  * REGLES D'ANNULATION AUTOMATIQUE:
  *  Durant tout le processus (entre étape 1 et la réponse de l'admin), si le pharmacien rejoint
  *  une autre pharmacie via une clé d'invitation (POST /pharmacie/join), l'appel suivant à cette 
  *  route détecte l'affiliation et déclenche automatiquement admin_refuse_pharmacy() sur la pharmacie
  *  en attente, puis retourne 409. Cette vérification est effectuée en Garde 4 à chaque appel.
  * 
+ * -----------------------------------------------------------------
  * OPERATION VIA RPC    :
  *  Appelle la fonction SQL SECURITY DEFINER create_pharmacy_with_gerant()
  *  qui effectue en une seule transaction :
@@ -44,6 +47,7 @@
  * Note :   La fonction SQL p_doc_path. On passe une chaîne vide "" car le justificatif réel sera soumis
  * séparément via POST /justificatifgs/pharmacie. Le document_path sera mis à jour par updateJustifPharmacie après soumission.
  * 
+ * -----------------------------------------------------------------
  * SÉCURITÉ :
  *  - JWT requis + userState = true
  *  - Rôle "pharmacien" requis
@@ -72,12 +76,11 @@ import {
     errorResponse,
 }                                               from "@/middleware/auth.ts";
 import { createAuthenticatedClient }            from "@/supabaseClient.ts";
-import { AuthClient } from "@supabase/supabase-js";
 
 /**
  * Handler POST /pharmacie
  */
-export async function createPharamcie(req: Request): Promise<Response> {
+export async function createPharmacie(req: Request): Promise<Response> {
     
     //  --- Garde 1 :   JWT -----------------------------------------------
     const token = extractToken(req);

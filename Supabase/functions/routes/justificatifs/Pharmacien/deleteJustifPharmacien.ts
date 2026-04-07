@@ -1,45 +1,81 @@
-import { supabase } from "../../../supabaseClient.ts";
+/**
+ * =============================================================================
+ * routes/justificatifs/Pharmacien/deleteJustifPharmacien.ts
+ * DELETE /justificatifs/pharmacien
+ * =============================================================================
+ *
+ * Suppression du document justificatif d'un pharmacien.
+ *
+ * AVERTISSEMENT MÉTIER :
+ *  Supprimer le justificatif alors que le pharmacien est déjà affilié à une
+ *  pharmacie n'a pas d'effet immédiat sur l'affiliation existante.
+ *  En revanche, si le rôle du compte est mis à jour ultérieurement,
+ *  le trigger trg_enforce_pharmacien_role bloquera sans justificatif présent.
+ *
+ * POLITIQUE RLS :
+ *  - "Pharmacien manage own justificatif" FOR ALL USING (user_id = auth.uid())
+ *    → couvre le DELETE
+ *
+ * SÉCURITÉ :
+ *  - JWT requis + userState = true
+ *  - Rôle "pharmacien" requis
+ *  - Filtre explicite .eq("user_id", user.id) — double protection RLS
+ *
+ * BODY : Aucun — l'utilisateur est identifié par son JWT.
+ *
+ * RÉPONSE SUCCÈS 200 :
+ *  { success: true, message: "Justificatif supprimé." }
+ *
+ * =============================================================================
+ */
 
-export async function deleteJustifPharmacien(
-  documentName: string,
-  username: string
-) {
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData?.user) throw new Error("Non authentifié");
+import { createAuthenticatedClient }    from "@/supabaseClient.ts";
+import { extractToken, getAuthenticatedUser, requireRole, successResponse, errorResponse } from "@/middleware/auth.ts";
 
-  const userId = authData.user.id;
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const { data: userRow } = await supabase
-    .from("users")
-    .select("username")
-    .eq("id", userId)
-    .single();
+export async function deleteJustifPharmacien(req: Request): Promise<Response> {
 
-  if (userRow?.username !== username) {
-    throw new Error("Accès refusé");
-  }
+    // ── Garde 1 : JWT ────────────────────────────────────────────────────────
+    const token = extractToken(req);
+    if (!token) return errorResponse("Authentification requise.", 401);
 
-  const documentPath = `${userId}/${documentName}`;
+    // ── Garde 2 : Session active ──────────────────────────────────────────────
+    const result = await getAuthenticatedUser(token);
+    if ("error" in result) return errorResponse(result.error, result.status);
+    const { user } = result;
 
-  // 1️⃣ Suppression du fichier Storage
-  const { error: storageError } = await supabase.storage
-    .from("pharmacien_justifs")
-    .remove([documentPath]);
+    // ── Garde 3 : Rôle pharmacien ─────────────────────────────────────────────
+    if (!requireRole(user, ["pharmacien"])) {
+        return errorResponse("Accès réservé aux pharmaciens.", 403);
+    }
 
-  if (storageError) {
-    throw new Error(storageError.message);
-  }
+    // ── Étape 1 : Vérification existence avant suppression ────────────────────
+    // Retourne un message explicite si aucun justificatif n'existe
+    const authClient = createAuthenticatedClient(token);
 
-  // 2️⃣ Suppression DB
-  const { error: dbError } = await supabase
-    .from("justif_pharmacien")
-    .delete()
-    .eq("user_id", userId)
-    .eq("document_path", documentPath);
+    const { data: existing } = await authClient
+        .from("justif_pharmacien")
+        .select("justif_id")
+        .eq("user_id", user.id)
+        .single();
 
-  if (dbError) {
-    throw new Error(dbError.message);
-  }
+    if (!existing) {
+        return errorResponse("Aucun justificatif trouvé pour ce compte.", 404);
+    }
 
-  return { success: true };
+    // ── Étape 2 : Suppression dans public.justif_pharmacien ───────────────────
+    // Client authentifié → RLS "Pharmacien manage own justificatif" couvre DELETE
+    // Le ON DELETE CASCADE dans justif_pharmacien → users garantit la cohérence
+    // si le compte est supprimé, mais pas l'inverse
+    const { error: deleteError } = await authClient
+        .from("justif_pharmacien")
+        .delete()
+        .eq("user_id", user.id);   // filtre explicite — double protection RLS
+
+    if (deleteError) {
+        return errorResponse("Impossible de supprimer le justificatif.", 500);
+    }
+
+    return successResponse(null, "Justificatif supprimé avec succès.", 200);
 }
