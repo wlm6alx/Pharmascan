@@ -32,11 +32,21 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: _pages),
-      bottomNavigationBar: CustomBottomNav(
-        currentIndex: _currentIndex,
-        onTap: _onTabSelected,
-      ),
+      body: Stack(children: [
+        IndexedStack(
+          index: _currentIndex,
+          children: _pages,
+        ),
+        Positioned(
+          bottom: 0 ,
+        left: 0,
+        right: 0,
+        child: CustomBottomNav(currentIndex: _currentIndex, onTap: _onTabSelected,))
+      ],),
+      // bottomNavigationBar: CustomBottomNav(
+      //   currentIndex: _currentIndex,
+      //   onTap: _onTabSelected,
+      // ),
     );
   }
 }

@@ -90,6 +90,7 @@ flutter:
     - asset/images/Logo.png
     - asset/data.json
     - asset/UsersData.json
+    - asset/medoc.json
     - .env
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -1,8 +1,9 @@
 class Users {
-  final int id;
+  final String id;
   final String nomUtilisateur;
   final String email;
   final String password;
+
   Users({
     required this.id,
     required this.nomUtilisateur,
@@ -12,10 +13,19 @@ class Users {
 
   factory Users.fromJson(Map<String, dynamic> json) {
     return Users(
-      id: json['id'],
+      id: json['id'] is int ? json['id'].toString() : json['id'],
       nomUtilisateur: json['nomUtilisateur'],
       email: json['email'],
       password: json['password'],
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'nomUtilisateur': nomUtilisateur,
+      'email': email,
+      'password': password,
+    };
   }
 }
