@@ -138,6 +138,7 @@
 
 //  --- Imports des utilitaires middleware --------------------------------------------------------------------------
 import { corsPreflightResponse, errorResponse } from "@/middleware/auth.ts";
+import { checkRateLimit, extractClientIP }          from "@/middleware/rateLimiter.ts";
 
 //  ----------- Imports des handlers - Authentiication --------------------------------------------------------------
 import { registerUser }                         from "@/routes/auth/registerUser.ts";
@@ -250,6 +251,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
     //  WARNING: Désactiver ou filtrer en procudtion pour éviter de logger des données
     //      sensibles (tokens, passwords dans les body).
     console.log(`[${new Date().toISOString()}] ${method} ${pathname}`);
+
+    //  --- Rate limiting   -----------------------------------------------------------------------------------------
+    const clientIP      =   extractClientIP(req);
+    const rateResult    =   checkRateLimit(clientIP, pathname);
+
+    if (!rateResult.allowed) {
+        return new Response(
+            JSON. stringify({
+                success: false,
+                error: `Trop de requêtes. Réesssayez dans ${rateResult.retryAfter} secondes.`,
+            }),
+            {
+                status: 429,
+                headers: {
+                    "Content-Type":     "application/json",
+                    "Retry-After":      String(rateResult.retryAfter),
+                    //  Headers CORS nécessaires même pour les 429
+                    "Access-Control-Allow-Origin":  "*",
+                    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+                },
+            }
+        );
+    }
 
     //  =============================================================================================================
     //  ROUTING  - Association pathname x method -> handler
