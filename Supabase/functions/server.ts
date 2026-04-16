@@ -145,6 +145,7 @@ import { loginUser }                            from "@/routes/auth/loginUser.ts
 import { resetPassword }                        from "@/routes/auth/resetPassword.ts";
 import { updatePassword }                       from "@/routes/auth/updatePassword.ts";
 import { logoutUser }                           from "@/routes/auth/logoutUser.ts";
+import { refreshToken }                         from "@/routes/auth/refreshToken.ts";
 
 //  ------------ Imports des handlers - Utilisateurs ----------------------------------------------------------------
 import { getUser }                              from "@/routes/users/getUser.ts";
@@ -297,6 +298,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
             //  POST uniquement - déconnexion + userState -> false
             if (method !== "POST") return methodNotAllowed(method, pathname);
             return await logoutUser(req);
+        }
+
+        else if (pathname === "auth/refresh") {
+            //  POST uniquement - rafraichit le token
+            if (method !== "POST") return methodNotAllowed(method, pathname);
+            
+            //  Extraction du body ici car refreshToken reçoit ka valeur directement
+            //  (pas la Request entière, conformément à la convention de paramètres utilisée)
+            let body: Record<string, unknown>;
+            try { body = await req.json(); }
+            catch { return errorResponse("JSON invalide.", 400); }
+
+            const rt = typeof body.refreshToken === "string" ? body.refreshToken : "";
+            return await refreshToken(rt);
         }
 
         //  ---------------------------------------------------------------------------------------------------------
