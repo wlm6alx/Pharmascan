@@ -695,6 +695,7 @@ export default function Profile() {
                       <input
                         type={showCurrentPassword ? 'text' : 'password'}
                         name="currentPassword"
+                        autoComplete="current-password"
                         value={formData.currentPassword}
                         onChange={handleChange}
                         placeholder="Entrez votre mot de passe actuel"
@@ -719,6 +720,7 @@ export default function Profile() {
                       <input
                         type={showNewPassword ? 'text' : 'password'}
                         name="newPassword"
+                        autoComplete="new-password"
                         value={formData.newPassword}
                         onChange={handleChange}
                         placeholder="Entrez un nouveau mot de passe"
@@ -773,6 +775,7 @@ export default function Profile() {
                       <input
                         type={showConfirmPassword ? 'text' : 'password'}
                         name="confirmPassword"
+                        autoComplete="new-password"
                         value={formData.confirmPassword}
                         onChange={handleChange}
                         placeholder="Confirmez le nouveau mot de passe"

@@ -1,0 +1,174 @@
+LOGIQUE “BACKEND” (côté Supabase) — PharmaScan Pharmacien
+=========================================================
+
+Ce fichier structure la logique backend telle qu’elle est utilisée par le frontend.
+Backend = Supabase (Auth + PostgREST + Storage + RPC).
+
+
+1) Authentification (Supabase Auth)
+----------------------------------
+
+1.1 Connexion
+- Front: src/pages/Login.jsx
+- Étapes:
+  1) signInWithPassword(email, password)
+  2) si erreur réseau “Failed to fetch”, fallback REST:
+     POST /auth/v1/token?grant_type=password
+     puis setSession(access_token, refresh_token)
+  3) après authentification, on s’assure d’avoir la ligne “pharmacists”:
+     - SELECT pharmacists WHERE user_id = authUser.id
+     - sinon: ensurePharmacistRow(...)
+  4) navigation vers /dashboard
+
+1.2 Inscription
+- Front: src/pages/Register.jsx
+- Étapes:
+  1) signUp(email, password, options.data = infos pharmacie + adresse + phone + license)
+  2) si session immédiatement disponible:
+     - récupérer pharmacists (id + pharmacy_id)
+     - upload attestation/photo (Storage) puis mise à jour pharmacies (URLs)
+  3) sinon (confirmation email):
+     - redirection vers /login avec message “confirmez votre email”
+
+1.3 Session globale
+- Front: src/contexts/AuthContext.jsx
+- getSession + onAuthStateChange => user/loading pour ProtectedRoute
+
+1.4 Mot de passe oublié / changement mot de passe
+- Front:
+  - src/pages/ForgotPassword.jsx => resetPasswordForEmail(email)
+  - src/pages/Profile.jsx => updateUser({ password: newPassword })
+
+
+2) Modèle de données (PostgreSQL)
+--------------------------------
+
+Tables principales utilisées:
+
+2.1 pharmacists
+- Rôle: lien entre utilisateur Auth (user_id) et pharmacie (pharmacy_id)
+- Champs clés utilisés par le front:
+  - user_id, pharmacy_id (et parfois id, first_name, last_name)
+- Utilisé pour retrouver la pharmacie “courante” d’un pharmacien connecté.
+
+2.2 pharmacies
+- Rôle: fiche pharmacie (nom, adresse, téléphone, statut, garde, etc.)
+- Champs typiques utilisés:
+  - id, name, address, phone, email
+  - status (pending/approved/rejected)
+  - operational_status (open/closed/busy)
+  - is_on_duty (bool)
+  - attestation_url, photo_url
+
+2.3 medications
+- Rôle: inventaire d’une pharmacie
+- Lien: pharmacy_id
+- Champs typiques:
+  - name, category, barcode, quantity, dosage, form, manufacturer, price
+  - production_date, expiration_date
+  - available (selon pages)
+  - photo_urls (TEXT[]) : URLs publiques Storage
+
+2.4 notifications
+- Rôle: messages/alertes côté pharmacien
+- Lien: pharmacy_id
+- Champs typiques:
+  - description, created_at, read
+
+
+3) Logique “métier” (lecture/écriture par pages)
+------------------------------------------------
+
+3.1 Dashboard (stats)
+- Front: src/pages/Dashboard.jsx
+- Flux:
+  1) SELECT pharmacists -> pharmacy_id
+  2) SELECT medications WHERE pharmacy_id = ...
+  3) calculs (stock total, faible stock, expirés, répartitions)
+
+3.2 Médicaments (CRUD + photos)
+- Front: src/pages/Medications.jsx
+- Flux:
+  1) SELECT pharmacists -> pharmacy_id
+  2) SELECT medications WHERE pharmacy_id = ...
+  3) CREATE/UPDATE:
+     - validations front (barcode, forme, photos 1..3)
+     - insert/update dans medications
+     - upload photos (Storage) => récupération publicUrl => update medications.photo_urls
+  4) DELETE:
+     - delete medications WHERE id = ...
+
+3.3 Disponibilité / quantité
+- Front: src/pages/Availability.jsx
+- Flux:
+  1) SELECT pharmacists -> pharmacy_id
+  2) SELECT medications WHERE pharmacy_id = ...
+  3) UPDATE medications (available / quantity)
+
+3.4 Profil / Ma pharmacie
+- Front: src/pages/Profile.jsx + src/pages/Pharmacy.jsx
+- Flux (profil complet):
+  1) update mot de passe (optionnel)
+  2) upload attestation/photo (Storage) => publicUrl
+  3) ensurePharmacistRow + resolvePharmacyForPharmacist
+  4) update pharmacies (ou create si inexistante)
+
+3.5 Statuts (validation, ouvert/fermé, garde)
+- Front: src/pages/Status.jsx + src/components/Layout.jsx
+- Règle UI:
+  - tant que pharmacies.status != approved => pas de switch ouvert/fermé “public”
+  - update pharmacies.operational_status / is_on_duty
+
+3.6 Notifications
+- Front: src/pages/Notifications.jsx + src/components/Layout.jsx
+- Flux:
+  - SELECT notifications WHERE pharmacy_id = ... ORDER BY created_at desc
+  - UPDATE read=true au clic
+  - DELETE notification
+  - Layout calcule unreadCount via SELECT id WHERE read=false
+
+
+4) Storage (fichiers)
+---------------------
+
+Buckets utilisés:
+- pharmacy-documents
+  - upload attestation
+  - URL stockée dans pharmacies.attestation_url
+- pharmacy-photos
+  - upload photo pharmacie
+  - URL stockée dans pharmacies.photo_url
+- medication-photos
+  - upload photos médicaments (1..3) par medicationId
+  - URLs stockées dans medications.photo_urls
+
+
+5) RPC / “bootstrap” backend
+----------------------------
+
+Front: src/lib/pharmacyHelpers.js
+
+ensurePharmacistRow(supabase, user):
+- but: garantir l’existence de la ligne pharmacists pour l’utilisateur connecté
+- essaye dans l’ordre:
+  1) SELECT minimal pharmacists (core)
+  2) RPC ensure_pharmacist_for_current_user()
+  3) RPC bootstrap_pharmacist_if_missing()
+  4) INSERT direct dans pharmacists (fallback)
+
+resolvePharmacyForPharmacist / resolveOrCreatePharmacy:
+- but: récupérer/assurer la ligne pharmacies même si l’embed relationnel est bloqué
+
+
+6) Contraintes “production” (à respecter côté Supabase)
+-------------------------------------------------------
+
+- RLS:
+  - les policies doivent limiter SELECT/INSERT/UPDATE/DELETE aux lignes liées au user courant
+    (souvent via pharmacists.user_id et pharmacists.pharmacy_id)
+- Storage policies:
+  - upload autorisé pour utilisateurs authentifiés
+  - lecture publique si vous utilisez publicUrl (sinon signer des URLs)
+- Redirect URLs Auth:
+  - reset password (ForgotPassword) => redirectTo doit être autorisé dans Supabase Auth
+

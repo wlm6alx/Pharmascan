@@ -5,6 +5,19 @@ import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import PharmaScanLogo from '../components/PharmaScanLogo'
 import { ensurePharmacistRow } from '../lib/pharmacyHelpers'
 
+const AUTH_ERROR_FR = {
+  'Invalid login credentials': 'Email ou mot de passe incorrect.',
+  'Email not confirmed': "Veuillez confirmer votre e-mail avant de vous connecter.",
+  'User not found': 'Compte introuvable.',
+  'Too many requests': 'Trop de tentatives. Réessaie dans quelques minutes.',
+  'Failed to fetch': "Impossible de joindre le service pour le moment. Vérifiez votre connexion et réessayez.",
+}
+
+function toFrenchAuthError(message) {
+  const msg = String(message || '').trim()
+  return AUTH_ERROR_FR[msg] || 'Connexion impossible pour le moment. Veuillez réessayer.'
+}
+
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -45,18 +58,13 @@ export default function Login() {
 
     const payload = await resp.json().catch(() => ({}))
     if (!resp.ok) {
-      throw new Error(
-        payload?.msg ||
-          payload?.error_description ||
-          payload?.error ||
-          `Erreur de connexion (${resp.status})`
-      )
+      throw new Error(toFrenchAuthError(payload?.msg || payload?.error_description || payload?.error))
     }
 
     const accessToken = payload?.access_token
     const refreshToken = payload?.refresh_token
     if (!accessToken || !refreshToken) {
-      throw new Error('Réponse Auth invalide: session introuvable.')
+      throw new Error("La connexion n'a pas pu être finalisée. Veuillez réessayer.")
     }
 
     const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
@@ -80,7 +88,7 @@ export default function Login() {
       const authData = await signInWithFallback(email, password)
       const authUser = authData?.user
       if (!authUser?.id) {
-        throw new Error('Session utilisateur invalide. Reconnectez-vous.')
+        throw new Error("La session est invalide. Merci de vous reconnecter.")
       }
 
       let { data: profile } = await supabase
@@ -94,9 +102,9 @@ export default function Login() {
       }
 
       if (!profile) {
-        await supabase.auth.signOut()
-        throw new Error(
-          'Impossible de créer la fiche pharmacien. Vérifiez les scripts SQL (supabase-schema.sql) et les politiques RLS sur la table pharmacists, ou contactez le support.'
+        // Ne pas bloquer l'accès si la ligne pharmacien n'est pas encore prête.
+        console.warn(
+          '[Login] Connexion réussie mais profil pharmacien introuvable. Vérifier les scripts SQL/RLS.'
         )
       }
 
@@ -104,11 +112,9 @@ export default function Login() {
     } catch (err) {
       const msg = String(err?.message || '')
       if (msg === 'Failed to fetch' || /NetworkError/i.test(msg)) {
-        setError(
-          'Échec de requête vers Supabase (Failed to fetch). Vérifiez le réseau du navigateur (proxy/VPN/extensions) et réessayez.'
-        )
+        setError("Impossible de joindre le service pour le moment. Vérifiez votre connexion et réessayez.")
       } else {
-        setError(err.message || 'Erreur lors de la connexion')
+        setError(toFrenchAuthError(err.message))
       }
     } finally {
       setLoading(false)
@@ -200,7 +206,7 @@ export default function Login() {
             {/* Lien mot de passe oublié */}
             <div className="text-right">
               <Link
-                to="#"
+                to="/forgot-password"
                 className="text-sm text-mint-DEFAULT hover:text-mint-dark transition-colors duration-200 hover:underline"
               >
                 Mot de passe oublié?

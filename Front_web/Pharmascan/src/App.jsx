@@ -1,7 +1,9 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { isSupabaseConfigured } from './lib/supabase'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import ForgotPassword from './pages/ForgotPassword'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Pharmacy from './pages/Pharmacy'
@@ -32,8 +34,15 @@ function ProtectedRoute({ children }) {
 function App() {
   return (
     <AuthProvider>
+      {!isSupabaseConfigured && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          Configuration Supabase invalide. Vérifie <code>VITE_SUPABASE_URL</code> et{' '}
+          <code>VITE_SUPABASE_ANON_KEY</code> dans le fichier <code>.env</code>.
+        </div>
+      )}
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/register" element={<Register />} />
         <Route
           path="/dashboard"

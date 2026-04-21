@@ -12,10 +12,15 @@ const invalid =
   url === 'https://your-project.supabase.co' ||
   anonKey === 'your-anon-key'
 
-if (invalid) {
-  throw new Error(
-    '[PharmaScan] Variables VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY requises (projet Supabase réel). Copiez .env.example vers .env et renseignez les valeurs depuis Supabase > Settings > API.'
+export const isSupabaseConfigured = !invalid
+
+if (!isSupabaseConfigured) {
+  console.warn(
+    '[PharmaScan] Configuration Supabase manquante/invalide. Vérifiez VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY.'
   )
 }
 
-export const supabase = createClient(url, anonKey)
+export const supabase = createClient(
+  isSupabaseConfigured ? url : 'https://placeholder.supabase.co',
+  isSupabaseConfigured ? anonKey : 'placeholder-anon-key'
+)
