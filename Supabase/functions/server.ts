@@ -214,6 +214,9 @@ import {
     updatePatientPrivate,
 }                                               from "@/routes/patients/patients.ts";
 
+//  ----------- Import de handler de test   -------------------------------------------------------------------------
+import { dbCheck }                              from '@/routes/test/dbCheck.ts';
+
 //  =================================================================================================================
 //  SERVEUR DENO - Démarrage et routing
 //  =================================================================================================================
@@ -235,6 +238,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const method: string = req.method;
     const url: URL = new URL(req.url);
     const pathname: string = url.pathname;
+
+    if (method !== "GET" && method !== "OPTIONS") {
+        try {
+            const clone = req.clone();
+            const bodyText = await clone.text();
+            console.log("BODY", bodyText);
+        } catch (e) {
+            console.log("BODY: impossible à lire.")
+        }
+    }
 
     //  --  Gestion du CORS preflight (OPTIONS) ---------------------------------------------------------------------
     //
@@ -547,6 +560,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
             if (method === "PUT")       return await updatePatient(req);
             return methodNotAllowed(method, pathname);
         }
+        
+        //  ---------------------------------------------------------------------------------------------------------
+        //  TEST
+        //  ---------------------------------------------------------------------------------------------------------
+        else if (pathname === "/test/db") {
+            if (method !== "GET") return methodNotAllowed(method, pathname);
+            return await dbCheck();
+        }
 
         //  ---------------------------------------------------------------------------------------------------------
         //  FALLBACK - Route non trouvée (404)
@@ -584,7 +605,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 //  Utilitaires internes au serveur
 //  =================================================================================================================
 
-/**
+/*
  * Returne une réponse 405 Method Not Allowed.
  * 
  * Appelée quand un pathname correspond à une route existante, mais que la méthode

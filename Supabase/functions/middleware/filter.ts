@@ -15,35 +15,68 @@
 */
 
 import { supabase }                         from "@/supabaseClient.ts";
+import { UserRole }                         from "@/middleware/auth.ts";
+import { getAdminClient } from "../supabaseAdminClient.ts";
 
 // ====================================================================
 //  TYPES UTILITAIRES
 // ====================================================================
 
 export type MedicamentFilterInput = {
-    name?:          string  | null;
-    categorie?:     string  | null;
-    description?:   string  | null;
-    visibility?:    boolean | null;
+    name?:          string      | null;
+    categorie?:     string      | null;
+    description?:   string      | null;
+    visibility?:    boolean     | null;
 };
 
 export type PharmacyFilterInput = {
-    name?:          string  | null;
-    adress?:        string  | null;
-    ville?:         string  | null;
-    quartier?:      string  | null;
-    phone?:         string  | null;
-    status?:        string  | null;
-    validate?:      boolean | null;
-    exist?:         boolean | null;
+    name?:          string      | null;
+    adress?:        string      | null;
+    ville?:         string      | null;
+    quartier?:      string      | null;
+    phone?:         string      | null;
+    status?:        string      | null;
+    validate?:      boolean     | null;
+    exist?:         boolean     | null;
 };
 
 export type StockFilterInput = {
-    available?:     boolean | null;
-    min_quantity?:  number  | null;
-    max_quantity?:  number  | null;
-    min_price?:     number  | null;
-    max_price?:     number  | null;
+    available?:     boolean     | null;
+    min_quantity?:  number      | null;
+    max_quantity?:  number      | null;
+    min_price?:     number      | null;
+    max_price?:     number      | null;
+};
+
+export type UserFilterInput = {
+    username?:      string      | null;
+    name?:          string      | null;
+    surname?:       string      | null;
+    email?:         string      | null;
+    phone?:         string      | null;
+    role?:          UserRole    | null;
+    userState?:     boolean     | null;
+};
+
+export type PatientFilterInput = {
+    gender?:        string      | null;
+    birthDate?:     Date        | null;
+    urgence_phone?: string      | null;
+    adress?:        string      | null;
+};
+
+export type PharmacienFilterInput = {
+    responsability?:    string  | null;
+    hasPharmacy?:       boolean | null;
+};
+
+export type JustifPharmacienFilterInput = {
+    documentPath?:  string      | null;
+};
+
+export type JustifPharmacieFilterInput = {
+    documentPath?:      string  | null;
+    validate?:          boolean | null;
 };
 
 // ====================================================================
@@ -82,7 +115,7 @@ export async function resolveMedicamentIds(filter: MedicamentFilterInput): Promi
     return (data ?? []).map((row: {medicament_id: string}) => row.medicament_id);
 }
 
-export async function resolveSingleMedicamentId(filter: MedicamentFilterInput): promise<string> {
+export async function resolveSingleMedicamentId(filter: MedicamentFilterInput): Promise<string> {
     const ids = await resolveMedicamentIds(filter);
 
     if (ids.length === 0) {
@@ -90,7 +123,7 @@ export async function resolveSingleMedicamentId(filter: MedicamentFilterInput): 
     }
 
     if (ids.length > 1) {
-        throw new Error ("p^lusieurs médicaments correspondent. Précisez d'avantage votre recherche.");
+        throw new Error ("plusieurs médicaments correspondent. Précisez d'avantage votre recherche.");
     }
 
     return ids[0];
@@ -133,6 +166,96 @@ export async function resolveSinglePharmacyId(filter: PharmacyFilterInput): Prom
     return ids[0];
 } 
 
+// =====================================================================
+//  STOCK
+// =====================================================================
+
+/**
+ *  A chaque fois qu'il est appelé, il faut faire la jointure avec 
+ * resolvePharmacy et resolveMedicament pour avoir tous les éléments de la
+ * table stockMedicament (stockMedicament d'une pharmacie)
+ */
 export async function resolveStockIds(filter: StockFilterInput): Promise<string[]> {
-    
+    const { data, error } = await supabase.rpc("filterStockMedicament", {
+        s_available:        normalizeBoolean(filter.available),
+        s_min_quantity:     normalizeNumber(filter.min_quantity),
+        s_max_quantity:     normalizeNumber(filter.max_quantity),
+        s_min_price:        normalizeNumber(filter.min_price),
+        s_max_price:        normalizeNumber(filter.max_price),
+    });
+
+    if (error) {
+        throw new Error(`Filtrage stocks impossible.`);
+    }
+
+    return (data ?? []).map((row: { stock_id: string }) => row.stock_id);
 }
+
+// =====================================================================
+//  USER
+// =====================================================================
+
+export async function resolveUserIds(filter: UserFilterInput): Promise<string[]> {
+    const { data, error } = await supabase.rpc("filterUsers", {
+        u_email:            normalizeText(filter.email),
+        u_username:         normalizeText(filter.username),
+        u_role:             normalizeText(filter.role),
+        u_userState:        normalizeBoolean(filter.userState)
+    });
+
+    if (error) {
+        throw new Error(`Filtrage user impossible.`);
+    }
+
+    return (data ?? []).map((row: { user_id: string }) => row.user_id);
+}
+
+// =====================================================================
+//  PATIENT
+// =====================================================================
+
+export async function resolvePatientIds(filter: PatientFilterInput): Promise<string[]> {
+    const { data, error } = await supabase.rpc("filterPatients", {
+        p_gender:           normalizeText(filter.gender),
+        p_birthDate:        filter.birthDate,
+        p_urgence_phone:    normalizeText(filter.urgence_phone),
+        p_adress:           normalizeText(filter.adress)
+    });
+
+    if (error) {
+        throw new Error (`Filtrage patient impossible.`);
+    }
+
+    return (data ?? []).map((row: { user_id: string }) => row.user_id);
+}
+
+// =====================================================================
+//  PHARMACIEN
+// =====================================================================
+
+export async function resolvePharmacienIds(filter: PharmacienFilterInput): Promise<string[]> {
+    const { data, error } = await supabase.rpc("filterPharmacien", {
+        p_responsability:   normalizeText(filter.responsability),
+        p_has_pharmacy:     normalizeBoolean(filter.hasPharmacy)
+    });
+
+    if (error) {
+        throw new Error (`Filtrage pharmacien impossible.`);
+    }
+
+    return (data ?? []).map((row: { user_id: string }) => row.user_id);
+}
+
+// =====================================================================
+//  JUSTIFPHARMACE
+// =====================================================================
+
+
+// =====================================================================
+//  JUSTIFPHARMACIEN
+// =====================================================================
+
+
+// =====================================================================
+//
+// =====================================================================
