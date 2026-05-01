@@ -3,7 +3,7 @@ import 'package:pharmascan/widgets/BarDeNavigation.dart';
 import 'package:pharmascan/Pages/homepage.dart';
 import 'package:pharmascan/Pages/pagesDeRecherche.dart';
 import 'package:pharmascan/Pages/PageDeScan.dart';
-import 'package:pharmascan/Pages/prolife_page.dart';
+import 'package:pharmascan/Pages/profile_page.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});

@@ -1,10 +1,10 @@
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
-import 'package:pharmascan/modele/modeleItineraire.dart';
+import 'package:pharmascan/modele/ItineraireModel.dart';
 
 class ItineraireService {
-
   static Future<Itineraire?> getItineraire({
     required LatLng depart,
     required LatLng destination,
@@ -12,15 +12,16 @@ class ItineraireService {
     try {
       // 👇 Format OSRM : longitude,latitude
       final url = Uri.parse(
-          'https://router.project-osrm.org/route/v1/driving/'
-              '${depart.longitude},${depart.latitude};'
-              '${destination.longitude},${destination.latitude}'
-              '?overview=full&geometries=geojson'
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${depart.longitude},${depart.latitude};'
+        '${destination.longitude},${destination.latitude}'
+        '?overview=full&geometries=geojson',
       );
 
-      final response = await http.get(url, headers: {
-        'User-Agent': 'PharmaScan/1.0 (com.pharmascan)',
-      });
+      final response = await http.get(
+        url,
+        headers: {'User-Agent': 'PharmaScan/1.0 (com.pharmascan)'},
+      );
 
       if (response.statusCode != 200) return null;
 
@@ -37,7 +38,6 @@ class ItineraireService {
         distanceMetres: route['distance'].toDouble(),
         dureeSecondes: route['duration'].toDouble(),
       );
-
     } catch (e) {
       print("❌ Erreur OSRM : $e");
       return null;

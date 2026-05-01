@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:pharmascan/modele/pharmacy.dart';
+import 'package:pharmascan/modele/ModelePharmacie.dart';
 
 class PharmacyCard extends StatelessWidget {
-  final Pharmacy pharmacy;
+  final Pharmacie pharmacy;
   final VoidCallback onTap;
 
   const PharmacyCard({super.key, required this.pharmacy, required this.onTap});
@@ -24,13 +24,13 @@ class PharmacyCard extends StatelessWidget {
             const Icon(Icons.local_pharmacy, size: 24),
             const SizedBox(height: 3),
             Text(
-              pharmacy.name,
+              pharmacy.nom,
               textAlign: TextAlign.center,
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
             ),
             const SizedBox(height: 2),
             Text(
-              pharmacy.address,
+              pharmacy.adresse,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 10),
             ),

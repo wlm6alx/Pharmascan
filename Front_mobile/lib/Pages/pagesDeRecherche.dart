@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:pharmascan/modele/pharmacy.dart';
+import 'package:pharmascan/modele/ModelePharmacie.dart';
 import 'package:pharmascan/services/pharmacyService.dart';
-import 'package:pharmascan/widgets/PharmacyCard.dart';
 import 'package:pharmascan/widgets/BarreDeRecherche.dart';
-
+import 'package:pharmascan/widgets/PharmacyCard.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -14,15 +13,14 @@ class SearchPage extends StatefulWidget {
 
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _searchController = TextEditingController();
-  List<Pharmacy> _allPharmacies = [];
-  List<Pharmacy> _filteredPharmacies = [];
+  List<Pharmacie> _allPharmacies = [];
+  List<Pharmacie> _filteredPharmacies = [];
 
   @override
   void initState() {
     super.initState();
     _loadData();
   }
-
 
   Future<void> _loadData() async {
     final data = await PharmacyService.loadPharmacies();
@@ -36,8 +34,8 @@ class _SearchPageState extends State<SearchPage> {
     setState(() {
       _filteredPharmacies = _allPharmacies.where((pharmacy) {
         final q = query.toLowerCase();
-        return pharmacy.name.toLowerCase().contains(q) ||
-            pharmacy.address.toLowerCase().contains(q);
+        return pharmacy.nom.toLowerCase().contains(q) ||
+            pharmacy.adresse.toLowerCase().contains(q);
       }).toList();
     });
   }

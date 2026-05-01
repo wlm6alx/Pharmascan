@@ -5,7 +5,7 @@ class Pharmacie {
   final String adresse;
   final LatLng position;
   final String? telephone;
-  final bool source; // true = JSON local, false = Nominatim
+  final bool source;
 
   Pharmacie({
     required this.nom,
@@ -32,10 +32,7 @@ class Pharmacie {
     return Pharmacie(
       nom: json['display_name'].toString().split(',').first,
       adresse: json['display_name'],
-      position: LatLng(
-        double.parse(json['lat']),
-        double.parse(json['lon']),
-      ),
+      position: LatLng(double.parse(json['lat']), double.parse(json['lon'])),
       source: false,
     );
   }
