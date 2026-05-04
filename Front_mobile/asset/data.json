@@ -1,4 +1,3 @@
-
 [
   {
     "nom": "Pharmacie Centrale",
@@ -13,11 +12,5 @@
     "latitude": 3.8667,
     "longitude": 11.5167,
     "telephone": "+237 222 000 000"
-  },
-  {
-    "id": 3,
-    "name": "Pharmacie de gaulle",
-    "address": "bonapriso",
-    "icon": "pharmacy"
   }
 ]

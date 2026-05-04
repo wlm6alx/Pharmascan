@@ -43,7 +43,7 @@ class PharmacyService {
         '?q=$query+pharmacie'
         '&format=json'
         '&limit=5'
-        '&countrycodes=cm', // 👈 restreint au Cameroun
+        '&countrycodes=cm', // permet de restreindre les recherches au cameroun
       );
 
       final response = await http.get(

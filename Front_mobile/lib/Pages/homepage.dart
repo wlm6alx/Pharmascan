@@ -214,6 +214,19 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
+    final largeur = MediaQuery.of(context).size.width;
+
+    // --- Breakpoints Logic ---
+    final bool isSmallPhone = largeur < 360;
+    final bool isNormalPhone = largeur >= 360 && largeur < 480;
+    final bool isBigPhone = largeur >= 480 && largeur < 600;
+    final bool isTablet = largeur >= 600;
+
+    // Adaptative horizontal margins (Prevents the search bar from being too wide on tablets)
+    final double horizontalPadding = isTablet
+        ? largeur * 0.2
+        : (isBigPhone ? largeur * 0.1 : 16.0);
+
     if (_currentPosition == null) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -354,13 +367,13 @@ class _HomeState extends State<Home> {
 
           // ── Barre de recherche ──
           Positioned(
-            top: 50,
-            left: 16,
-            right: 16,
+            top: isTablet ? 60 : 50,
+            left: horizontalPadding,
+            right: horizontalPadding,
             child: Column(
               children: [
                 Container(
-                  height: 50,
+                  height: isSmallPhone ? 45 : 50,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(30),
@@ -457,8 +470,8 @@ class _HomeState extends State<Home> {
 
           // ── Bouton recentrer ──
           Positioned(
-            bottom: 110,
-            right: 16,
+            bottom: isTablet ? 120 : 110,
+            right: isTablet ? horizontalPadding : 16,
             child: FloatingActionButton.small(
               onPressed: _recentrer,
               backgroundColor: Colors.white,
@@ -470,9 +483,9 @@ class _HomeState extends State<Home> {
           // ── Panneau itinéraire ──
           if (_itineraireEnCours)
             Positioned(
-              bottom: 110,
-              left: 16,
-              right: 60,
+              bottom: isTablet ? 120 : 110,
+              left: horizontalPadding,
+              right: isTablet ? horizontalPadding : 60,
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -501,9 +514,9 @@ class _HomeState extends State<Home> {
 
           if (_itineraire != null && !_itineraireEnCours)
             Positioned(
-              bottom: 110,
-              left: 16,
-              right: 16,
+              bottom: isTablet ? 120 : 110,
+              left: horizontalPadding,
+              right: horizontalPadding,
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
