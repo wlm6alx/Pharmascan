@@ -6,14 +6,14 @@ import 'package:pharmascan/modele/modeleUser.dart';
 import 'package:pharmascan/services/InscriptionService.dart';
 import 'package:pharmascan/services/serviceD_authentification.dart';
 
-class Profile extends StatefulWidget {
-  const Profile({super.key});
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key});
 
   @override
-  State<Profile> createState() => _ProfileState();
+  State<ProfilePage> createState() => _ProfileState();
 }
 
-class _ProfileState extends State<Profile> {
+class _ProfileState extends State<ProfilePage> {
   late Future<Users?> _userFuture;
 
   @override

@@ -20,7 +20,7 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   void initState() {
     super.initState();
-    _pages = [Home(), SearchPage(), PageDeScan(), Profile()];
+    _pages = [Home(), SearchPage(), PageDeScan(), ProfilePage()];
   }
 
   void _onTabSelected(int index) {
