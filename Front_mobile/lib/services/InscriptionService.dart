@@ -99,4 +99,40 @@ import 'package:path_provider/path_provider.dart';
         return false;
       }
     }
+
+    static Future<bool> modifierUser(Users userModifie) async {
+      try {
+        final users = await chargerUsers();
+
+        final int index = users.indexWhere((u) => u.id == userModifie.id);
+        if (index == -1) {
+          return false;
+        }
+
+        final bool emailDejaUtilise = users.any(
+          (u) =>
+              u.id != userModifie.id &&
+              u.email.toLowerCase() == userModifie.email.toLowerCase(),
+        );
+
+        if (emailDejaUtilise) {
+          return false;
+        }
+
+        users[index] = userModifie;
+
+        final fichier = await _getFichier();
+        final contenuAEcrire = json.encode(
+          users.map((u) => u.toJson()).toList(),
+        );
+
+        await fichier.writeAsString(contenuAEcrire);
+        return true;
+      } catch (e) {
+        print("❌ Erreur modification profil : $e");
+        print("❌ Stack trace : ${StackTrace.current}");
+        return false;
+      }
+    }
+
   }
