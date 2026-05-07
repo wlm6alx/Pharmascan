@@ -23,19 +23,23 @@ class PharmacyService {
       final List data = json.decode(contenu);
       final pharmacies = data.map((e) => Pharmacie.fromJson(e)).toList();
 
-      return pharmacies
+      final resultats = pharmacies
           .where(
             (p) =>
                 p.nom.toLowerCase().contains(query.toLowerCase()) ||
                 p.adresse.toLowerCase().contains(query.toLowerCase()),
           )
           .toList();
+
+      print("✅ Local: ${resultats.length} pharmacies trouvées pour '$query'");
+      return resultats;
     } catch (e) {
+      print("❌ Erreur rechercherLocal : $e");
       return [];
     }
   }
 
-  // Ajour des fonctions de recherche via Nominatim OSM
+  // Ajout des fonctions de recherche via Nominatim OSM
   static Future<List<Pharmacie>> rechercherNominatim(String query) async {
     try {
       final uri = Uri.parse(
@@ -65,7 +69,7 @@ class PharmacyService {
     final local = await rechercherLocal(query);
     final nominatim = await rechercherNominatim(query);
 
-    // Fusionne sans doublons
+    // Fusion des 2 résultats en évitans les doublons
     final tous = [...local];
     for (final p in nominatim) {
       final doublon = tous.any(

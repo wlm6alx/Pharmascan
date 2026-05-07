@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-//import 'package:pharmascan/Pages/pagesDeRecherche.dart';
 import 'package:pharmascan/Pages/Error404.dart';
 import 'package:pharmascan/Pages/PageDeScan.dart';
 import 'package:pharmascan/Pages/homepage.dart';
+//import 'package:pharmascan/Pages/pagesDeRecherche.dart';
 import 'package:pharmascan/Pages/profile_page.dart';
 import 'package:pharmascan/widgets/BarDeNavigation.dart';
 
