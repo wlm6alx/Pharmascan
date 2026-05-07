@@ -138,6 +138,7 @@
 
 //  --- Imports des utilitaires middleware --------------------------------------------------------------------------
 import { corsPreflightResponse, errorResponse } from "@/middleware/auth.ts";
+import { checkRateLimit, extractClientIP }          from "@/middleware/rateLimiter.ts";
 
 //  ----------- Imports des handlers - Authentiication --------------------------------------------------------------
 import { registerUser }                         from "@/routes/auth/registerUser.ts";
@@ -145,6 +146,7 @@ import { loginUser }                            from "@/routes/auth/loginUser.ts
 import { resetPassword }                        from "@/routes/auth/resetPassword.ts";
 import { updatePassword }                       from "@/routes/auth/updatePassword.ts";
 import { logoutUser }                           from "@/routes/auth/logoutUser.ts";
+import { refreshToken }                         from "@/routes/auth/refreshToken.ts";
 
 //  ------------ Imports des handlers - Utilisateurs ----------------------------------------------------------------
 import { getUser }                              from "@/routes/users/getUser.ts";
@@ -212,6 +214,9 @@ import {
     updatePatientPrivate,
 }                                               from "@/routes/patients/patients.ts";
 
+//  ----------- Import de handler de test   -------------------------------------------------------------------------
+import { dbCheck }                              from '@/routes/test/dbCheck.ts';
+
 //  =================================================================================================================
 //  SERVEUR DENO - Démarrage et routing
 //  =================================================================================================================
@@ -234,6 +239,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const url: URL = new URL(req.url);
     const pathname: string = url.pathname;
 
+    if (method !== "GET" && method !== "OPTIONS") {
+        try {
+            const clone = req.clone();
+            const bodyText = await clone.text();
+            console.log("BODY", bodyText);
+        } catch (e) {
+            console.log("BODY: impossible à lire.")
+        }
+    }
+
     //  --  Gestion du CORS preflight (OPTIONS) ---------------------------------------------------------------------
     //
     //  Le snavigateurs envoient une requête OPTIONS avant toutes requête
@@ -249,6 +264,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
     //  WARNING: Désactiver ou filtrer en procudtion pour éviter de logger des données
     //      sensibles (tokens, passwords dans les body).
     console.log(`[${new Date().toISOString()}] ${method} ${pathname}`);
+
+    //  --- Rate limiting   -----------------------------------------------------------------------------------------
+    const clientIP      =   extractClientIP(req);
+    const rateResult    =   checkRateLimit(clientIP, pathname);
+
+    if (!rateResult.allowed) {
+        return new Response(
+            JSON. stringify({
+                success: false,
+                error: `Trop de requêtes. Réesssayez dans ${rateResult.retryAfter} secondes.`,
+            }),
+            {
+                status: 429,
+                headers: {
+                    "Content-Type":     "application/json",
+                    "Retry-After":      String(rateResult.retryAfter),
+                    //  Headers CORS nécessaires même pour les 429
+                    "Access-Control-Allow-Origin":  "*",
+                    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+                },
+            }
+        );
+    }
 
     //  =============================================================================================================
     //  ROUTING  - Association pathname x method -> handler
@@ -297,6 +335,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
             //  POST uniquement - déconnexion + userState -> false
             if (method !== "POST") return methodNotAllowed(method, pathname);
             return await logoutUser(req);
+        }
+
+        else if (pathname === "auth/refresh") {
+            //  POST uniquement - rafraichit le token
+            if (method !== "POST") return methodNotAllowed(method, pathname);
+            
+            //  Extraction du body ici car refreshToken reçoit ka valeur directement
+            //  (pas la Request entière, conformément à la convention de paramètres utilisée)
+            let body: Record<string, unknown>;
+            try { body = await req.json(); }
+            catch { return errorResponse("JSON invalide.", 400); }
+
+            const rt = typeof body.refreshToken === "string" ? body.refreshToken : "";
+            return await refreshToken(rt);
         }
 
         //  ---------------------------------------------------------------------------------------------------------
@@ -508,6 +560,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
             if (method === "PUT")       return await updatePatient(req);
             return methodNotAllowed(method, pathname);
         }
+        
+        //  ---------------------------------------------------------------------------------------------------------
+        //  TEST
+        //  ---------------------------------------------------------------------------------------------------------
+        else if (pathname === "/test/db") {
+            if (method !== "GET") return methodNotAllowed(method, pathname);
+            return await dbCheck();
+        }
 
         //  ---------------------------------------------------------------------------------------------------------
         //  FALLBACK - Route non trouvée (404)
@@ -545,7 +605,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 //  Utilitaires internes au serveur
 //  =================================================================================================================
 
-/**
+/*
  * Returne une réponse 405 Method Not Allowed.
  * 
  * Appelée quand un pathname correspond à une route existante, mais que la méthode

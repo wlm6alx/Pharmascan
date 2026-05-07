@@ -17,7 +17,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       locale: DevicePreview.locale(context),
-      home: const SplashScreen(), // 👈 ajoute const ici aussi
+      home: const SplashScreen(),
     );
   }
 }

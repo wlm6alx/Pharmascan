@@ -1,20 +1,16 @@
 [
   {
-    "id": 1,
-    "name": "Pharmacie de Yachika",
-    "address": "Face école publique Yachika",
-    "icon": "pharmacy"
+    "nom": "Pharmacie Centrale",
+    "adresse": "Avenue Kennedy, Douala",
+    "latitude": 4.0511,
+    "longitude": 9.7679,
+    "telephone": "+237 233 000 000"
   },
   {
-    "id": 2,
-    "name": "Pharmacie Centrale",
-    "address": "Carrefour central",
-    "icon": "pharmacy"
-  },
-    {
-    "id": 3,
-    "name": "Pharmacie de gaulle",
-    "address": "bonapriso",
-    "icon": "pharmacy"
+    "nom": "Pharmacie du Marché",
+    "adresse": "Marché Central, Yaoundé",
+    "latitude": 3.8667,
+    "longitude": 11.5167,
+    "telephone": "+237 222 000 000"
   }
 ]

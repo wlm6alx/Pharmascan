@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:pharmascan/widgets/BarDeNavigation.dart';
-import 'package:pharmascan/Pages/homepage.dart';
-import 'package:pharmascan/Pages/pagesDeRecherche.dart';
+//import 'package:pharmascan/Pages/pagesDeRecherche.dart';
+import 'package:pharmascan/Pages/Error404.dart';
 import 'package:pharmascan/Pages/PageDeScan.dart';
-import 'package:pharmascan/Pages/prolife_page.dart';
+import 'package:pharmascan/Pages/homepage.dart';
+import 'package:pharmascan/Pages/profile_page.dart';
+import 'package:pharmascan/widgets/BarDeNavigation.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
@@ -20,7 +21,7 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   void initState() {
     super.initState();
-    _pages = [Home(), SearchPage(), PageDeScan(), ProfilePage()];
+    _pages = [Home(), Error404Screen(), PageDeScan(), ProfilePage()];
   }
 
   void _onTabSelected(int index) {
@@ -32,21 +33,20 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(children: [
-        IndexedStack(
-          index: _currentIndex,
-          children: _pages,
-        ),
-        Positioned(
-          bottom: 0 ,
-        left: 0,
-        right: 0,
-        child: CustomBottomNav(currentIndex: _currentIndex, onTap: _onTabSelected,))
-      ],),
-      // bottomNavigationBar: CustomBottomNav(
-      //   currentIndex: _currentIndex,
-      //   onTap: _onTabSelected,
-      // ),
+      body: Stack(
+        children: [
+          IndexedStack(index: _currentIndex, children: _pages),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: CustomBottomNav(
+              currentIndex: _currentIndex,
+              onTap: _onTabSelected,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
