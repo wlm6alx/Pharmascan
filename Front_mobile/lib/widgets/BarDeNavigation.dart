@@ -75,7 +75,7 @@ class _NavItem {
 }
 
 final _items = [
-  _NavItem(Icons.home, "Accueil"),
+  _NavItem(Icons.home, "Home"),
   _NavItem(Icons.search, "Search"),
   _NavItem(Icons.qr_code_scanner, "Scan"),
   _NavItem(Icons.person, "Profil"),

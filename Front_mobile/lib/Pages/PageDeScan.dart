@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:pharmascan/Pages/ScanScreen.dart';
 import 'package:pharmascan/modele/modeleMedocs.dart';
 import 'package:pharmascan/services/Medocservice.dart';
 import 'package:pharmascan/widgets/BarreDeRecherche.dart';
@@ -12,9 +14,8 @@ class PageDeScan extends StatefulWidget {
 
 class _PageDeScanState extends State<PageDeScan>
     with SingleTickerProviderStateMixin {
-
   List<Medoc> _historique = [];
-  List<Medoc> _resultats = [];        // 👈 liste filtrée par la recherche
+  List<Medoc> _resultats = [];
   bool _chargement = true;
   String? _erreur;
 
@@ -56,35 +57,77 @@ class _PageDeScanState extends State<PageDeScan>
 
       setState(() {
         _historique = medocs.take(6).toList();
-        _resultats = _historique; // 👈 par défaut affiche l'historique complet
+        _resultats = _historique;
         _chargement = false;
       });
-
     } catch (e) {
       setState(() {
-        _erreur = "Impossible de charger les médicaments.";
+        _erreur = "Impossible de charger les medicaments.";
         _chargement = false;
       });
     }
   }
 
-  // 👇 Filtre l'historique selon la saisie
   void _rechercher(String valeur) {
     setState(() {
       if (valeur.isEmpty) {
-        _resultats = _historique; // si vide → affiche tout l'historique
+        _resultats = _historique;
       } else {
         _resultats = _historique.where((medoc) {
-          final nomMatch = medoc.nom
-              .toLowerCase()
-              .contains(valeur.toLowerCase());
-          final dosageMatch = medoc.dosage
-              .toLowerCase()
-              .contains(valeur.toLowerCase());
+          final nomMatch = medoc.nom.toLowerCase().contains(
+                valeur.toLowerCase(),
+              );
+          final dosageMatch = medoc.dosage.toLowerCase().contains(
+                valeur.toLowerCase(),
+              );
           return nomMatch || dosageMatch;
         }).toList();
       }
     });
+  }
+
+  void _ouvrirScanner() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) => SizedBox(
+        height: MediaQuery.of(modalContext).size.height * 0.85,
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: ScanScreen(
+            onDetect: (barcodeCapture) {
+              Navigator.of(modalContext).pop();
+              _traiterScan(barcodeCapture);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _traiterScan(BarcodeCapture barcodeCapture) {
+    final Barcode? premierBarcode = barcodeCapture.barcodes.isNotEmpty
+        ? barcodeCapture.barcodes.first
+        : null;
+    final String? code = premierBarcode?.rawValue;
+
+    if (!mounted) return;
+
+    if (code == null || code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Aucun code exploitable n\'a ete detecte.'),
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Code detecte : $code')),
+    );
+
+    // Ajoute ici la logique de verification d'authenticite du medicament.
   }
 
   @override
@@ -99,11 +142,9 @@ class _PageDeScanState extends State<PageDeScan>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-
                 const SizedBox(height: 20),
-
                 const Text(
-                  "RECENT",
+                  "Scan de medicaments",
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -111,19 +152,15 @@ class _PageDeScanState extends State<PageDeScan>
                     color: Colors.black87,
                   ),
                 ),
-
                 const SizedBox(height: 12),
-
                 BarreDeRecherche(
                   controller: _searchController,
-                  onChanged: _rechercher, // 👈 branché sur _rechercher
+                  onChanged: _rechercher,
                   onBack: () => Navigator.pop(context),
                 ),
-
                 const SizedBox(height: 16),
-
                 const Text(
-                  "MEDICAMENTS",
+                  "Medicaments scannes recemment",
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
@@ -131,26 +168,20 @@ class _PageDeScanState extends State<PageDeScan>
                     color: Color(0xFF1193AB),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
                 Expanded(
                   child: _buildContenu(),
                 ),
-
                 const SizedBox(height: 100),
               ],
             ),
           ),
         ),
       ),
-
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 70),
+        padding: const EdgeInsets.only(bottom: 100),
         child: FloatingActionButton(
-          onPressed: () {
-            // TODO: ton collègue implémente le scanner ici
-          },
+          onPressed: _ouvrirScanner,
           backgroundColor: const Color(0xFF1193AB),
           elevation: 6,
           shape: const CircleBorder(),
@@ -191,7 +222,7 @@ class _PageDeScanState extends State<PageDeScan>
               onPressed: _chargerHistorique,
               icon: const Icon(Icons.refresh, color: Colors.white),
               label: const Text(
-                "Réessayer",
+                "Reessayer",
                 style: TextStyle(color: Colors.white),
               ),
             ),
@@ -200,7 +231,6 @@ class _PageDeScanState extends State<PageDeScan>
       );
     }
 
-    // 👇 Aucun résultat de recherche
     if (_resultats.isEmpty) {
       return Center(
         child: Column(
@@ -210,8 +240,8 @@ class _PageDeScanState extends State<PageDeScan>
             const SizedBox(height: 16),
             Text(
               _searchController.text.isEmpty
-                  ? "Aucun scan récent"
-                  : "Aucun résultat pour \"${_searchController.text}\"",
+                  ? "Aucun scan recent"
+                  : 'Aucun resultat pour "${_searchController.text}"',
               style: const TextStyle(color: Colors.grey, fontSize: 15),
               textAlign: TextAlign.center,
             ),
@@ -219,7 +249,7 @@ class _PageDeScanState extends State<PageDeScan>
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
-                  "Appuyez sur + pour scanner un médicament",
+                  "Appuyez sur + pour scanner un medicament",
                   style: TextStyle(color: Colors.grey, fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
@@ -229,7 +259,6 @@ class _PageDeScanState extends State<PageDeScan>
       );
     }
 
-    // 👇 Grille avec _resultats au lieu de _historique
     return GridView.builder(
       physics: const BouncingScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -238,15 +267,14 @@ class _PageDeScanState extends State<PageDeScan>
         mainAxisSpacing: 12,
         childAspectRatio: 0.78,
       ),
-      itemCount: _resultats.length,       // 👈 _resultats et non _historique
+      itemCount: _resultats.length,
       itemBuilder: (context, index) {
-        return _CarteMedicament(medoc: _resultats[index]); // 👈 idem
+        return _CarteMedicament(medoc: _resultats[index]);
       },
     );
   }
 }
 
-// ── Carte médicament ── (inchangée)
 class _CarteMedicament extends StatelessWidget {
   final Medoc medoc;
 
@@ -328,7 +356,7 @@ class _CarteMedicament extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Text(
-                "Non trouvé",
+                "Non trouve",
                 style: TextStyle(
                   fontSize: 8,
                   color: Colors.red,

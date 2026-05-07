@@ -20,6 +20,20 @@ class Users {
     );
   }
 
+  Users copyWith({
+    String? id,
+    String? nomUtilisateur,
+    String? email,
+    String? password,
+  }) {
+    return Users(
+      id: id ?? this.id,
+      nomUtilisateur: nomUtilisateur ?? this.nomUtilisateur,
+      email: email ?? this.email,
+      password: password ?? this.password,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
