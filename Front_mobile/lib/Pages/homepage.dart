@@ -11,7 +11,9 @@ import 'package:pharmascan/services/ItineraireService.dart';
 import 'package:pharmascan/services/pharmacyService.dart';
 
 class Home extends StatefulWidget {
-  const Home({super.key});
+  final ValueNotifier<Pharmacie?>? routeRequest;
+
+  const Home({super.key, this.routeRequest});
 
   @override
   State<Home> createState() => _HomeState();
@@ -35,22 +37,52 @@ class _HomeState extends State<Home> {
   Itineraire? _itineraire;
   Pharmacie? _destinationChoisie;
   bool _itineraireEnCours = false;
+  Pharmacie? _itineraireEnAttente;
 
   @override
   void initState() {
     super.initState();
+    widget.routeRequest?.addListener(_onRouteRequest);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _getUserLocation();
     });
   }
 
   @override
+  void didUpdateWidget(covariant Home oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.routeRequest != widget.routeRequest) {
+      oldWidget.routeRequest?.removeListener(_onRouteRequest);
+      widget.routeRequest?.addListener(_onRouteRequest);
+    }
+  }
+
+  @override
   void dispose() {
+    widget.routeRequest?.removeListener(_onRouteRequest);
     _retryTimer?.cancel();
     _positionStream?.cancel();
     _debounceTimer?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onRouteRequest() {
+    final pharmacie = widget.routeRequest?.value;
+    if (pharmacie == null) return;
+
+    _itineraireEnAttente = pharmacie;
+    if (_currentPosition != null) {
+      _lancerItineraireEnAttente();
+    }
+  }
+
+  void _lancerItineraireEnAttente() {
+    final pharmacie = _itineraireEnAttente;
+    if (pharmacie == null || _currentPosition == null) return;
+
+    _itineraireEnAttente = null;
+    _allerVers(pharmacie);
   }
 
   void _scheduleRetry(String message) {
@@ -107,6 +139,7 @@ class _HomeState extends State<Home> {
         _currentPosition = LatLng(position.latitude, position.longitude);
         _chargement = false;
       });
+      _lancerItineraireEnAttente();
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _mapController.move(_currentPosition!, 15.0);
@@ -118,6 +151,7 @@ class _HomeState extends State<Home> {
         _currentPosition = LatLng(3.8480, 11.5021);
         _chargement = false;
       });
+      _lancerItineraireEnAttente();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _mapController.move(_currentPosition!, 12.0);
       });

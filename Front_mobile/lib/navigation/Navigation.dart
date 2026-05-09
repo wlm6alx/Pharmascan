@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:pharmascan/Pages/Error404.dart';
 import 'package:pharmascan/Pages/PageDeScan.dart';
 import 'package:pharmascan/Pages/homepage.dart';
-//import 'package:pharmascan/Pages/pagesDeRecherche.dart';
-import 'package:pharmascan/Pages/profile_page.dart';
+import 'package:pharmascan/Pages/pagesDeRecherche.dart';
+import 'package:pharmascan/modele/ModelePharmacie.dart';
+import 'package:pharmascan/Pages/profile.dart';
 import 'package:pharmascan/widgets/BarDeNavigation.dart';
 
 class MainNavigation extends StatefulWidget {
@@ -15,13 +15,34 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
+  final ValueNotifier<Pharmacie?> _routeRequest = ValueNotifier(null);
 
   late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
-    _pages = [Home(), Error404Screen(), PageDeScan(), ProfilePage()];
+    _pages = [
+      Home(routeRequest: _routeRequest),
+      SearchPage(onPharmacySelected: _openRouteToPharmacy),
+      PageDeScan(),
+      ProfilePage(),
+    ];
+  }
+
+  @override
+  void dispose() {
+    _routeRequest.dispose();
+    super.dispose();
+  }
+
+  void _openRouteToPharmacy(Pharmacie pharmacie) {
+    setState(() {
+      _currentIndex = 0;
+    });
+
+    _routeRequest.value = null;
+    _routeRequest.value = pharmacie;
   }
 
   void _onTabSelected(int index) {

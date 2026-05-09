@@ -39,6 +39,26 @@ class PharmacyService {
     }
   }
 
+  static Future<List<Pharmacie>> rechercherParMedicamentLocal(
+    String query,
+  ) async {
+    try {
+      final String contenu = await rootBundle.loadString('asset/data.json');
+      final List data = json.decode(contenu);
+      final pharmacies = data.map((e) => Pharmacie.fromJson(e)).toList();
+      final recherche = query.trim().toLowerCase();
+
+      return pharmacies.where((pharmacie) {
+        return pharmacie.medicaments.any(
+          (medicament) => medicament.toLowerCase().contains(recherche),
+        );
+      }).toList();
+    } catch (e) {
+      print("Erreur rechercherParMedicamentLocal : $e");
+      return [];
+    }
+  }
+
   // Ajout des fonctions de recherche via Nominatim OSM
   static Future<List<Pharmacie>> rechercherNominatim(String query) async {
     try {

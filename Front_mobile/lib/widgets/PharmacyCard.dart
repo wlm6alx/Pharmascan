@@ -34,6 +34,26 @@ class PharmacyCard extends StatelessWidget {
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 10),
             ),
+            if (pharmacy.medicamentTrouve != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                pharmacy.medicamentTrouve!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF1193AB),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+            if (pharmacy.stockDisponible != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                "Stock: ${pharmacy.stockDisponible}",
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 10),
+              ),
+            ],
           ],
         ),
       ),
