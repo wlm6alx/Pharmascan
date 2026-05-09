@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:pharmascan/modele/ItineraireModel.dart';
@@ -19,11 +20,16 @@ class Home extends StatefulWidget {
 
 class _HomeState extends State<Home> {
   LatLng? _currentPosition;
+  LatLng? _dernierePositionChargement; // 👈 pour savoir quand recharger
   final MapController _mapController = MapController();
   Timer? _retryTimer;
   StreamSubscription<Position>? _positionStream;
   bool _chargement = true;
   String _statutLocalisation = "Vérification de la localisation...";
+
+  // Pharmacies proches
+  List<Pharmacie> _pharmaciesProches = []; // 👈 pharmacies dans 3km
+  bool _chargementPharmacies = false;
 
   // Recherche
   final TextEditingController _searchController = TextEditingController();
@@ -113,6 +119,7 @@ class _HomeState extends State<Home> {
       });
 
       _demarrerTracking();
+      _chargerPharmaciesProches(); // 👈 charge les pharmacies après GPS
     } on TimeoutException catch (_) {
       setState(() {
         _currentPosition = LatLng(3.8480, 11.5021);
@@ -122,10 +129,30 @@ class _HomeState extends State<Home> {
         _mapController.move(_currentPosition!, 12.0);
       });
       _demarrerTracking();
+      _chargerPharmaciesProches(); // 👈 charge aussi sur position par défaut
     } catch (e) {
       _scheduleRetry(
         "Erreur de localisation.\nNous réessayerons dans 1 minute.",
       );
+    }
+  }
+
+  // 👇 Charge les pharmacies dans un rayon de 3km
+  Future<void> _chargerPharmaciesProches() async {
+    if (_currentPosition == null) return;
+
+    setState(() {
+      _chargementPharmacies = true;
+      _dernierePositionChargement = _currentPosition;
+    });
+
+    final pharmacies = await PharmacyService.loadPharmacies(_currentPosition!);
+
+    if (mounted) {
+      setState(() {
+        _pharmaciesProches = pharmacies;
+        _chargementPharmacies = false;
+      });
     }
   }
 
@@ -139,10 +166,24 @@ class _HomeState extends State<Home> {
           ),
         ).listen(
           (Position position) {
-            setState(() {
-              _currentPosition = LatLng(position.latitude, position.longitude);
-            });
+            final nouvellePosition = LatLng(
+              position.latitude,
+              position.longitude,
+            );
+
+            setState(() => _currentPosition = nouvellePosition);
             _mapController.move(_currentPosition!, _mapController.camera.zoom);
+
+            // 👇 Recharge les pharmacies si l'user a bougé de plus de 500m
+            if (_dernierePositionChargement != null) {
+              final distance = PharmacyService.calculerDistance(
+                nouvellePosition,
+                _dernierePositionChargement!,
+              );
+              if (distance > 0.5) _chargerPharmaciesProches();
+            } else {
+              _chargerPharmaciesProches();
+            }
           },
           onError: (e) {
             _scheduleRetry(
@@ -152,14 +193,12 @@ class _HomeState extends State<Home> {
         );
   }
 
-  // 👇 Recentre la carte sur la position actuelle
   void _recentrer() {
     if (_currentPosition != null) {
       _mapController.move(_currentPosition!, 15.0);
     }
   }
 
-  // 👇 Recherche avec debounce (attend 500ms après la dernière frappe)
   void _onSearch(String query) {
     _debounceTimer?.cancel();
     if (query.isEmpty) {
@@ -169,7 +208,10 @@ class _HomeState extends State<Home> {
 
     _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
       setState(() => _rechercheEnCours = true);
-      final resultats = await PharmacyService.rechercher(query);
+      final resultats = await PharmacyService.rechercher(
+        query,
+        position: _currentPosition, // 👈 passe la position pour le tri
+      );
       setState(() {
         _resultatsRecherche = resultats;
         _rechercheEnCours = false;
@@ -177,7 +219,6 @@ class _HomeState extends State<Home> {
     });
   }
 
-  // 👇 Calcule l'itinéraire vers une pharmacie
   Future<void> _allerVers(Pharmacie pharmacie) async {
     if (_currentPosition == null) return;
 
@@ -198,13 +239,11 @@ class _HomeState extends State<Home> {
       _itineraireEnCours = false;
     });
 
-    // Centre la carte sur l'itinéraire
     if (itineraire != null) {
       _mapController.move(pharmacie.position, 14.0);
     }
   }
 
-  // 👇 Annule l'itinéraire
   void _annulerItineraire() {
     setState(() {
       _itineraire = null;
@@ -212,16 +251,185 @@ class _HomeState extends State<Home> {
     });
   }
 
+  // 👇 BottomSheet détails pharmacie
+  void _afficherDetailPharmacie(Pharmacie pharmacie) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    pharmacie.name,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: pharmacie.estOuverte
+                        ? Colors.green.withOpacity(0.1)
+                        : Colors.red.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    pharmacie.estOuverte ? "Ouverte" : "Fermée",
+                    style: TextStyle(
+                      color: pharmacie.estOuverte ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            // Adresse
+            Row(
+              children: [
+                SvgPicture.asset('asset/pharmacie1.svg', width: 24, height: 24),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    pharmacie.adress,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ),
+              ],
+            ),
+
+            // Ville / Quartier
+            if (pharmacie.ville != null || pharmacie.quartier != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.map, color: Colors.grey, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    [
+                      pharmacie.quartier,
+                      pharmacie.ville,
+                    ].whereType<String>().join(', '),
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ],
+              ),
+            ],
+
+            // Téléphone
+            if (pharmacie.phone_number != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.phone, color: Colors.grey, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    pharmacie.phone_number!,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ],
+              ),
+            ],
+
+            // Distance
+            if (_currentPosition != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.directions_walk,
+                    color: Colors.grey,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    "${PharmacyService.calculerDistanceAffichage(_currentPosition!, pharmacie.position)} de vous",
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ],
+              ),
+            ],
+
+            // Source
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                SvgPicture.asset(
+                  'asset/pharmacie1.svg',
+                  width: 24,
+                  height: 24,
+                  color: pharmacie.source == 'supabase'
+                      ? const Color(0xFF1193AB)
+                      : pharmacie.source == 'osm'
+                      ? Colors.orange
+                      : Colors.grey,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  pharmacie.source == 'supabase'
+                      ? "Partenaire PharmaScan"
+                      : pharmacie.source == 'osm'
+                      ? "OpenStreetMap"
+                      : "Base locale",
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1193AB),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                  _allerVers(pharmacie);
+                },
+                icon: const Icon(Icons.directions, color: Colors.white),
+                label: const Text(
+                  "Obtenir l'itinéraire",
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final largeur = MediaQuery.of(context).size.width;
-
-    // --- Breakpoints Logic ---
     final bool isSmallPhone = largeur < 360;
     final bool isBigPhone = largeur >= 480 && largeur < 600;
     final bool isTablet = largeur >= 600;
-
-    // Adaptative horizontal margins (Prevents the search bar from being too wide on tablets)
     final double horizontalPadding = isTablet
         ? largeur * 0.2
         : (isBigPhone ? largeur * 0.1 : 16.0);
@@ -284,7 +492,6 @@ class _HomeState extends State<Home> {
               keepAlive: true,
               minZoom: 9,
               onTap: (_, __) {
-                // Ferme les résultats si on tape sur la carte
                 setState(() => _resultatsRecherche = []);
               },
               interactionOptions: InteractionOptions(
@@ -303,7 +510,7 @@ class _HomeState extends State<Home> {
                     dotenv.env['USER_AGENT'] ?? 'com.pharmascan',
               ),
 
-              // 👇 Tracé de l'itinéraire
+              // 👇 Tracé itinéraire
               if (_itineraire != null)
                 PolylineLayer(
                   polylines: [
@@ -315,10 +522,9 @@ class _HomeState extends State<Home> {
                   ],
                 ),
 
-              // 👇 Markers
               MarkerLayer(
                 markers: [
-                  // Position actuelle
+                  // 👇 Position actuelle
                   Marker(
                     point: _currentPosition!,
                     width: 40,
@@ -330,39 +536,124 @@ class _HomeState extends State<Home> {
                     ),
                   ),
 
-                  // Markers des pharmacies trouvées
-                  ..._resultatsRecherche.map(
+                  // 👇 Pharmacies dans 3km (toujours visibles)
+                  ..._pharmaciesProches.map(
                     (pharmacie) => Marker(
                       point: pharmacie.position,
-                      width: 40,
-                      height: 40,
+                      width: 45,
+                      height: 45,
                       child: GestureDetector(
-                        onTap: () => _allerVers(pharmacie),
-                        child: const Icon(
-                          Icons.local_pharmacy,
-                          color: Color(0xFF1193AB),
-                          size: 40,
+                        onTap: () => _afficherDetailPharmacie(pharmacie),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: pharmacie.source == 'supabase'
+                                ? const Color(0xFF1193AB) // bleu = partenaire
+                                : pharmacie.source == 'osm'
+                                ? Colors
+                                      .orange // orange = OSM
+                                : Colors.grey, // gris = local
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                          child: SvgPicture.asset(
+                            'asset/pharmacie1.svg',
+                            width: 24,
+                            height: 24,
+                          ),
                         ),
                       ),
                     ),
                   ),
 
-                  // Marker destination choisie
+                  // 👇 Résultats de recherche (en plus des proches)
+                  ..._resultatsRecherche
+                      .where(
+                        (p) => !_pharmaciesProches.any(
+                          (proche) => proche.pharmacie_id == p.pharmacie_id,
+                        ),
+                      )
+                      .map(
+                        (pharmacie) => Marker(
+                          point: pharmacie.position,
+                          width: 40,
+                          height: 40,
+                          child: GestureDetector(
+                            onTap: () => _afficherDetailPharmacie(pharmacie),
+                            child: SvgPicture.asset(
+                              'asset/pharmacie1.svg',
+                              width: 24,
+                              height: 24,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                  // 👇 Destination choisie
                   if (_destinationChoisie != null)
                     Marker(
                       point: _destinationChoisie!.position,
                       width: 40,
                       height: 40,
-                      child: const Icon(
-                        Icons.local_pharmacy,
-                        color: Colors.green,
-                        size: 40,
+                      child: SvgPicture.asset(
+                        'asset/pharmacie1.svg',
+                        width: 24,
+                        height: 24,
                       ),
                     ),
                 ],
               ),
             ],
           ),
+
+          // ── Indicateur chargement pharmacies ──
+          if (_chargementPharmacies)
+            Positioned(
+              top: isTablet ? 120 : 110,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF1193AB),
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        "Recherche des pharmacies proches...",
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           // ── Barre de recherche ──
           Positioned(
@@ -416,10 +707,11 @@ class _HomeState extends State<Home> {
                   ),
                 ),
 
-                // 👇 Liste des résultats
+                // 👇 Liste des résultats de recherche
                 if (_resultatsRecherche.isNotEmpty)
                   Container(
                     margin: const EdgeInsets.only(top: 8),
+                    constraints: const BoxConstraints(maxHeight: 250),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
@@ -432,33 +724,44 @@ class _HomeState extends State<Home> {
                     ),
                     child: ListView.separated(
                       shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
                       itemCount: _resultatsRecherche.length,
                       separatorBuilder: (_, __) =>
                           const Divider(height: 1, indent: 16),
                       itemBuilder: (context, index) {
                         final pharmacie = _resultatsRecherche[index];
                         return ListTile(
-                          leading: Icon(
-                            Icons.local_pharmacy,
-                            color: pharmacie.source
+                          leading: SvgPicture.asset(
+                            'asset/pharmacie1.svg',
+                            width: 24,
+                            height: 24,
+                            color: pharmacie.source == 'supabase'
                                 ? const Color(0xFF1193AB)
-                                : Colors.orange,
+                                : pharmacie.source == 'osm'
+                                ? Colors.orange
+                                : Colors.grey,
                           ),
                           title: Text(
-                            pharmacie.nom,
+                            pharmacie.name,
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           subtitle: Text(
-                            pharmacie.adresse,
+                            pharmacie.adress,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          trailing: const Icon(
-                            Icons.directions,
-                            color: Color(0xFF1193AB),
-                          ),
-                          onTap: () => _allerVers(pharmacie),
+                          trailing: _currentPosition != null
+                              ? Text(
+                                  PharmacyService.calculerDistanceAffichage(
+                                    _currentPosition!,
+                                    pharmacie.position,
+                                  ),
+                                  style: const TextStyle(
+                                    color: Color(0xFF1193AB),
+                                    fontSize: 12,
+                                  ),
+                                )
+                              : null,
+                          onTap: () => _afficherDetailPharmacie(pharmacie),
                         );
                       },
                     ),
@@ -479,7 +782,7 @@ class _HomeState extends State<Home> {
             ),
           ),
 
-          // ── Panneau itinéraire ──
+          // ── Panneau chargement itinéraire ──
           if (_itineraireEnCours)
             Positioned(
               bottom: isTablet ? 120 : 110,
@@ -511,6 +814,7 @@ class _HomeState extends State<Home> {
               ),
             ),
 
+          // ── Panneau itinéraire actif ──
           if (_itineraire != null && !_itineraireEnCours)
             Positioned(
               bottom: isTablet ? 120 : 110,
@@ -530,14 +834,18 @@ class _HomeState extends State<Home> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.local_pharmacy, color: Color(0xFF1193AB)),
+                    SvgPicture.asset(
+                      'asset/pharmacie1.svg',
+                      width: 24,
+                      height: 24,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _destinationChoisie?.nom ?? '',
+                            _destinationChoisie?.name ?? '',
                             style: const TextStyle(fontWeight: FontWeight.bold),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

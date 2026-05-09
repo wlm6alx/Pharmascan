@@ -16,6 +16,8 @@ class _SearchPageState extends State<SearchPage> {
   List<Pharmacie> _allPharmacies = [];
   List<Pharmacie> _filteredPharmacies = [];
 
+  bool _isLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -23,19 +25,24 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _loadData() async {
-    final data = await PharmacyService.loadPharmacies();
-    setState(() {
-      _allPharmacies = data;
-      _filteredPharmacies = data;
-    });
+    setState(() => _isLoading = true);
+    // On utilise rechercher("") qui charge les données locales sans avoir besoin de position GPS
+    final data = await PharmacyService.rechercher("");
+    if (mounted) {
+      setState(() {
+        _allPharmacies = data;
+        _filteredPharmacies = data;
+        _isLoading = false;
+      });
+    }
   }
 
   void _onSearchChanged(String query) {
     setState(() {
       _filteredPharmacies = _allPharmacies.where((pharmacy) {
         final q = query.toLowerCase();
-        return pharmacy.nom.toLowerCase().contains(q) ||
-            pharmacy.adresse.toLowerCase().contains(q);
+        return pharmacy.name.toLowerCase().contains(q) ||
+            pharmacy.adress.toLowerCase().contains(q);
       }).toList();
     });
   }
@@ -57,7 +64,13 @@ class _SearchPageState extends State<SearchPage> {
               const SizedBox(height: 24),
 
               Expanded(
-                child: _filteredPharmacies.isEmpty
+                child: _isLoading
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFF1193AB),
+                        ),
+                      )
+                    : _filteredPharmacies.isEmpty
                     ? const Center(child: Text("Aucun résultat"))
                     : LayoutBuilder(
                         builder: (context, constraints) {

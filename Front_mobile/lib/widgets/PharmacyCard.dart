@@ -24,13 +24,13 @@ class PharmacyCard extends StatelessWidget {
             const Icon(Icons.local_pharmacy, size: 24),
             const SizedBox(height: 3),
             Text(
-              pharmacy.nom,
+              pharmacy.name,
               textAlign: TextAlign.center,
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
             ),
             const SizedBox(height: 2),
             Text(
-              pharmacy.adresse,
+              pharmacy.adress,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 10),
             ),

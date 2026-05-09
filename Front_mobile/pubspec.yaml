@@ -37,7 +37,7 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  flutter_svg: ^2.2.4
+  flutter_svg: ^2.0.9
   flutter_polyline_points: ^3.0.1
   location: ^8.0.1
   flutter_map: ^8.2.2
@@ -91,6 +91,8 @@ flutter:
   uses-material-design: true
   assets:
     - asset/images/Logo.png
+    - asset/pharmacie1.svg
+    - asset/images/pharmacie_logo.svg
     - asset/data.json
     - asset/UsersData.json
     - asset/medoc.json
