@@ -218,7 +218,6 @@ class _HomeState extends State<Home> {
 
     // --- Breakpoints Logic ---
     final bool isSmallPhone = largeur < 360;
-    final bool isNormalPhone = largeur >= 360 && largeur < 480;
     final bool isBigPhone = largeur >= 480 && largeur < 600;
     final bool isTablet = largeur >= 600;
 

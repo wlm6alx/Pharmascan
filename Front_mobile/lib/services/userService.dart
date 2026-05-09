@@ -103,7 +103,14 @@ class UserService {
       final AuthResponse res = await _supabase.auth.signUp(
         email: nouveauUser.email,
         password: nouveauUser.password,
-        data: {'nomUtilisateur': nouveauUser.username},
+        data: {
+          'username': nouveauUser.username,
+          'name': nouveauUser.name,
+          'surname': nouveauUser.surename,
+          if (nouveauUser.phone.isNotEmpty) 'phone': nouveauUser.phone,
+          'role': nouveauUser.role,
+          //  'userstate': nouveauUser.userstate,
+        },
       );
 
       if (res.user != null) {

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+//import 'package:pharmascan/Pages/InscriptionConnexion.dart';
+import 'package:pharmascan/Pages/pagesConnexion.dart';
 import 'package:pharmascan/modele/modeleUser.dart';
-import 'package:pharmascan/services/InscriptionService.dart';
-import 'package:pharmascan/Pages/InscriptionConnexion.dart';
-import 'package:uuid/uuid.dart'; // Package pour uuid unique
+import 'package:pharmascan/services/userService.dart'; // 👈 plus uuid ni InscriptionService
 
 class PageInscription extends StatefulWidget {
   const PageInscription({super.key});
@@ -12,32 +12,32 @@ class PageInscription extends StatefulWidget {
 }
 
 class _InscriptionPageState extends State<PageInscription> {
-  //Boolléen de vérification de terme et de mot de passe
   bool _motDePasseCache = true;
   bool _termsAccepter = false;
   bool _chargement = false;
 
-  // Controllers pour récupérer les valeurs des champs
-  final _nomController = TextEditingController();
+  final _NomUtilisateurController = TextEditingController();
   final _emailController = TextEditingController();
   final _motDePasseController = TextEditingController();
-
-  // Clé pour valider le formulaire et pouvoir avoir accès à celui-ci n'importe où dans le code
+  final _NameController = TextEditingController();
+  final _surenameController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   @override
   void dispose() {
-    _nomController.dispose();
+    _NomUtilisateurController.dispose();
     _emailController.dispose();
     _motDePasseController.dispose();
+    _NameController.dispose();
+    _surenameController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
   Future<void> _inscrire() async {
-    // Validons avant tout le formulaire
     if (!_formKey.currentState!.validate()) return;
 
-    // Vérification des termes et leur validité
     if (!_termsAccepter) {
       _afficherMessage(
         "Veuillez accepter les termes et la politique de confidentialité.",
@@ -48,34 +48,40 @@ class _InscriptionPageState extends State<PageInscription> {
 
     setState(() => _chargement = true);
 
-    // 3. Crée le nouvel utilisateur
+    // 👇 ID vide — Supabase génère l'UUID automatiquement
     final nouveauUser = Users(
-      id: const Uuid().v4(), // génère un ID unique
-      nomUtilisateur: _nomController.text.trim(),
+      id: '',
+      name: _NameController.text.trim(),
+      surename: _surenameController.text.trim(),
+      phone: _phoneController.text.trim(),
+      role: 'patient',
+      userstate: true,
+      username: _NomUtilisateurController.text.trim(),
       email: _emailController.text.trim(),
       password: _motDePasseController.text,
     );
 
-    // 4. Tente l'inscription
-    final succes = await UserService.inscrireUser(nouveauUser);
+    // 👇 inscrireUser retourne maintenant un Map
+    final resultat = await UserService.inscrireUser(nouveauUser);
 
     setState(() => _chargement = false);
 
-    if (succes) {
-      _afficherMessage("Inscription réussie !");
-      // Redirige vers la page de connexion après succès
-      Future.delayed(const Duration(seconds: 1), () {
+    if (resultat['succes'] == true) {
+      _afficherMessage(
+        resultat['source'] == 'supabase'
+            ? "Inscription réussie ! Vérifiez votre email."
+            : "Inscription réussie !",
+      );
+      Future.delayed(const Duration(seconds: 2), () {
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(
-            builder: (_) => const Inscriptionconnexion(),
-          ),
-              (route) => false,
+          MaterialPageRoute(builder: (_) => const PagesConnexion()),
+          (route) => false,
         );
       });
     } else {
       _afficherMessage(
-        "Cet email est déjà utilisé.",
+        resultat['message'] ?? "Cet email est déjà utilisé.",
         estErreur: true,
       );
     }
@@ -87,9 +93,7 @@ class _InscriptionPageState extends State<PageInscription> {
         content: Text(message),
         backgroundColor: estErreur ? Colors.red : const Color(0xFF7BC1B7),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -118,15 +122,14 @@ class _InscriptionPageState extends State<PageInscription> {
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20.0),
         child: Form(
-          key: _formKey, // 👈 enveloppe dans un Form pour la validation
+          key: _formKey,
           child: Column(
             children: [
               const SizedBox(height: 20),
 
-              // ── Nom d'utilisateur ──
               _buildTextField(
-                controller: _nomController,
-                hintText: "Nom d'utilisateur",
+                controller: _NameController,
+                hintText: "Nom",
                 validateur: (val) {
                   if (val == null || val.trim().isEmpty) {
                     return "Le nom est requis";
@@ -136,7 +139,44 @@ class _InscriptionPageState extends State<PageInscription> {
               ),
               const SizedBox(height: 15),
 
-              // ── Adresse mail ──
+              _buildTextField(
+                controller: _surenameController,
+                hintText: "Prenom",
+                validateur: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return "Le prénom est requis";
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 15),
+
+              _buildTextField(
+                controller: _NomUtilisateurController,
+                hintText: "Username",
+                validateur: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return "Le nom est requis";
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 15),
+              _buildTextField(
+                controller: _phoneController,
+                hintText: "Numéro Ex : +237 6...",
+                validateur: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return "Le nom est requis";
+                  }
+                  if (!RegExp(r'^\+[0-9]+$').hasMatch(val.trim())) {
+                    return "Format invalide. Ex: +237612345678";
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 15),
+
               _buildTextField(
                 controller: _emailController,
                 hintText: "Adresse mail",
@@ -152,7 +192,6 @@ class _InscriptionPageState extends State<PageInscription> {
               ),
               const SizedBox(height: 15),
 
-              // ── Mot de passe ──
               _buildTextField(
                 controller: _motDePasseController,
                 hintText: "Mot de passe",
@@ -164,15 +203,14 @@ class _InscriptionPageState extends State<PageInscription> {
                   if (val == null || val.isEmpty) {
                     return "Le mot de passe est requis";
                   }
-                  if (val.length < 6) {
-                    return "Minimum 6 caractères";
+                  if (val.length < 8) {
+                    return "Minimum 8 caractères";
                   }
                   return null;
                 },
               ),
               const SizedBox(height: 20),
 
-              // ── Checkbox terms ──
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -197,7 +235,9 @@ class _InscriptionPageState extends State<PageInscription> {
                           height: 1.4,
                         ),
                         children: [
-                          TextSpan(text: "Je confirme avoir lu et accepté les "),
+                          TextSpan(
+                            text: "Je confirme avoir lu et accepté les ",
+                          ),
                           TextSpan(
                             text: "termes du contrat ",
                             style: TextStyle(
@@ -222,7 +262,6 @@ class _InscriptionPageState extends State<PageInscription> {
               ),
               const SizedBox(height: 30),
 
-              // ── Bouton S'inscrire ──
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -238,9 +277,9 @@ class _InscriptionPageState extends State<PageInscription> {
                   child: _chargement
                       ? const CircularProgressIndicator(color: Colors.white)
                       : const Text(
-                    "S'inscrire",
-                    style: TextStyle(color: Colors.white, fontSize: 16),
-                  ),
+                          "S'inscrire",
+                          style: TextStyle(color: Colors.white, fontSize: 16),
+                        ),
                 ),
               ),
 
@@ -272,14 +311,12 @@ class _InscriptionPageState extends State<PageInscription> {
         ),
         suffixIcon: onTogglePassword != null
             ? IconButton(
-          icon: Icon(
-            isPassword
-                ? Icons.visibility_off_outlined
-                : Icons.visibility,
-            color: Colors.black26,
-          ),
-          onPressed: onTogglePassword,
-        )
+                icon: Icon(
+                  isPassword ? Icons.visibility_off_outlined : Icons.visibility,
+                  color: Colors.black26,
+                ),
+                onPressed: onTogglePassword,
+              )
             : null,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),

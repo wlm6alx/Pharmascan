@@ -3,8 +3,8 @@ import 'package:pharmascan/Pages/InscriptionConnexion.dart';
 import 'package:pharmascan/Pages/modifier_profil.dart';
 import 'package:pharmascan/Pages/parametres_page.dart';
 import 'package:pharmascan/modele/modeleUser.dart';
-import 'package:pharmascan/services/InscriptionService.dart';
 import 'package:pharmascan/services/serviceD_authentification.dart';
+import 'package:pharmascan/services/userService.dart'; // 👈 corrigé
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -23,21 +23,20 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<Users?> _chargerUtilisateurActuel() async {
+    // 👇 1. Tente depuis Supabase
     final Users? userConnecte =
-        await serviceD_authentification.getUtilisateurConnecte();
-    if (userConnecte != null) {
-      return userConnecte;
-    }
+        await ServiceDAuthentification.getUtilisateurConnecte(); // 👈 majuscule
 
+    if (userConnecte != null) return userConnecte;
+
+    // 👇 2. Fallback local
     final List<Users> users = await UserService.chargerUsers();
     return users.isNotEmpty ? users.first : null;
   }
 
   Future<void> _ouvrirModifierProfil(Users? user) async {
     final bool? profilModifie = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => ModifierProfilPage(user: user),
-      ),
+      MaterialPageRoute(builder: (_) => ModifierProfilPage(user: user)),
     );
 
     if (profilModifie == true && mounted) {
@@ -48,25 +47,57 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _ouvrirParametres() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const ParametresPage(),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const ParametresPage()));
   }
 
   Future<void> _deconnecter() async {
-    await serviceD_authentification.logout();
+    // 👇 Dialog de confirmation avant déconnexion
+    final confirmer = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Déconnexion"),
+        content: const Text("Voulez-vous vraiment vous déconnecter ?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Annuler", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1193AB),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              "Confirmer",
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmer != true) return;
+
+    // 👇 Déconnexion Supabase + local
+    await ServiceDAuthentification.logout(); // 👈 majuscule
+
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Deconnexion reussie.')),
+      const SnackBar(
+        content: Text('Déconnexion réussie.'),
+        backgroundColor: Color(0xFF1193AB),
+      ),
     );
 
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => const Inscriptionconnexion(),
-      ),
+      MaterialPageRoute(builder: (_) => const Inscriptionconnexion()),
       (route) => false,
     );
   }
@@ -79,8 +110,15 @@ class _ProfilePageState extends State<ProfilePage> {
         child: FutureBuilder<Users?>(
           future: _userFuture,
           builder: (context, snapshot) {
+            // 👇 État chargement
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(color: Color(0xFF1193AB)),
+              );
+            }
+
             final Users? user = snapshot.data;
-            final String displayName = user?.nomUtilisateur ?? 'Utilisateur';
+            final String displayName = user?.username ?? 'Utilisateur';
             final String displayEmail =
                 user?.email ?? 'utilisateur@pharmascan.com';
 
@@ -101,12 +139,12 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   _ProfileActionTile(
                     icon: Icons.settings_outlined,
-                    title: 'Parametres',
+                    title: 'Paramètres',
                     onTap: _ouvrirParametres,
                   ),
                   _ProfileActionTile(
                     icon: Icons.logout,
-                    title: 'Deconnexion',
+                    title: 'Déconnexion',
                     onTap: _deconnecter,
                     isLast: true,
                   ),
@@ -120,14 +158,12 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 }
 
+// ── Header profil ── (inchangé)
 class _ProfileHeader extends StatelessWidget {
   final String displayName;
   final String displayEmail;
 
-  const _ProfileHeader({
-    required this.displayName,
-    required this.displayEmail,
-  });
+  const _ProfileHeader({required this.displayName, required this.displayEmail});
 
   @override
   Widget build(BuildContext context) {
@@ -167,10 +203,7 @@ class _ProfileHeader extends StatelessWidget {
           Text(
             displayEmail,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Colors.black54,
-            ),
+            style: const TextStyle(fontSize: 13, color: Colors.black54),
           ),
         ],
       ),
@@ -178,6 +211,7 @@ class _ProfileHeader extends StatelessWidget {
   }
 }
 
+// ── Item du menu ── (inchangé)
 class _ProfileActionTile extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -201,20 +235,17 @@ class _ProfileActionTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 18),
         decoration: BoxDecoration(
           border: Border(
-            bottom: BorderSide(
-              color: Colors.grey.shade300,
-            ),
+            bottom: isLast
+                ? BorderSide
+                      .none // 👈 pas de bordure sur le dernier
+                : BorderSide(color: Colors.grey.shade300),
           ),
         ),
         child: Row(
           children: [
             SizedBox(
               width: 42,
-              child: Icon(
-                icon,
-                size: 28,
-                color: Colors.black87,
-              ),
+              child: Icon(icon, size: 28, color: Colors.black87),
             ),
             const SizedBox(width: 18),
             Expanded(
@@ -227,11 +258,7 @@ class _ProfileActionTile extends StatelessWidget {
                 ),
               ),
             ),
-            const Icon(
-              Icons.chevron_right,
-              color: Colors.black87,
-              size: 24,
-            ),
+            const Icon(Icons.chevron_right, color: Colors.black87, size: 24),
           ],
         ),
       ),

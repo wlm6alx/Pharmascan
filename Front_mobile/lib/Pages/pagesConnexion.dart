@@ -11,16 +11,60 @@ class PagesConnexion extends StatefulWidget {
 }
 
 class _PagesConnexionState extends State<PagesConnexion> {
-  bool mdpCache = true;
-  final TextEditingController nomUtilisateurController =
+  bool _mdpCache = true;
+  bool _chargement = false;
+  final TextEditingController _nomUtilisateurController =
       TextEditingController();
-  final TextEditingController motDePasseController = TextEditingController();
+  final TextEditingController _motDePasseController = TextEditingController();
 
   @override
   void dispose() {
-    nomUtilisateurController.dispose();
-    motDePasseController.dispose();
+    _nomUtilisateurController.dispose();
+    _motDePasseController.dispose();
     super.dispose();
+  }
+
+  Future<void> _connecter() async {
+    final email = _nomUtilisateurController.text.trim();
+    final motDePasse = _motDePasseController.text.trim();
+
+    // 👇 Validation basique
+    if (email.isEmpty || motDePasse.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Veuillez remplir tous les champs."),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _chargement = true);
+
+    final estCorrect = await ServiceDAuthentification.login(email, motDePasse);
+
+    setState(() => _chargement = false);
+
+    if (estCorrect) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Connexion réussie !"),
+          backgroundColor: Color(0xFF1193AB),
+        ),
+      );
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const MainNavigation()),
+        (route) => false,
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Nom d'utilisateur ou mot de passe incorrect."),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
@@ -52,25 +96,31 @@ class _PagesConnexionState extends State<PagesConnexion> {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             const SizedBox(height: 30),
-            Center(
-              child: Image.asset("asset/images/Logo.png", height: 120),
-            ),
+            Center(child: Image.asset("asset/images/Logo.png", height: 120)),
             const SizedBox(height: 30),
+
+            // email
             TextFormField(
-              controller: nomUtilisateurController,
+              controller: _nomUtilisateurController,
               decoration: InputDecoration(
-                hintText: "Nom d'utilisateur",
+                hintText: "email",
                 hintStyle: const TextStyle(color: Colors.black26),
-                border: OutlineInputBorder(
+                enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF1193AB)),
+                  borderSide: const BorderSide(color: Colors.black12),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: primaryColor),
                 ),
               ),
             ),
             const SizedBox(height: 10),
+
+            // ── Mot de passe ──
             TextFormField(
-              controller: motDePasseController,
-              obscureText: mdpCache,
+              controller: _motDePasseController,
+              obscureText: _mdpCache,
               decoration: InputDecoration(
                 hintText: "Mot de passe",
                 hintStyle: const TextStyle(color: Colors.black26),
@@ -80,15 +130,13 @@ class _PagesConnexionState extends State<PagesConnexion> {
                 ),
                 suffixIcon: IconButton(
                   icon: Icon(
-                    mdpCache
+                    _mdpCache
                         ? Icons.visibility_off_outlined
                         : Icons.visibility,
                     color: Colors.black26,
                   ),
                   onPressed: () {
-                    setState(() {
-                      mdpCache = !mdpCache;
-                    });
+                    setState(() => _mdpCache = !_mdpCache);
                   },
                 ),
                 enabledBorder: OutlineInputBorder(
@@ -97,50 +145,36 @@ class _PagesConnexionState extends State<PagesConnexion> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF1193AB)),
+                  borderSide: BorderSide(color: primaryColor),
                 ),
               ),
             ),
             const SizedBox(height: 20),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1193AB),
-                minimumSize: const Size(double.infinity, 50),
-              ),
-              onPressed: () async {
-                final nomUtilisateur = nomUtilisateurController.text.trim();
-                final motdepasse = motDePasseController.text.trim();
 
-                final estCorrect = await serviceD_authentification.login(
-                  nomUtilisateur,
-                  motdepasse,
-                );
-
-                if (estCorrect) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Connexion reussie !")),
-                  );
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const MainNavigation(),
-                    ),
-                    (route) => false,
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("Username ou mot de passe incorrect!!"),
-                    ),
-                  );
-                }
-              },
-              child: const Text(
-                "Se connecter",
-                style: TextStyle(color: Colors.white),
+            // ── Bouton Se connecter ──
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                onPressed: _chargement ? null : _connecter,
+                child: _chargement
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text(
+                        "Se connecter",
+                        style: TextStyle(color: Colors.white, fontSize: 16),
+                      ),
               ),
             ),
             const SizedBox(height: 10),
+
+            // ── Mot de passe oublié ──
             TextButton(
               onPressed: () {
                 Navigator.push(
@@ -151,7 +185,7 @@ class _PagesConnexionState extends State<PagesConnexion> {
                 );
               },
               child: const Text(
-                "Mot de passe oublie ?",
+                "Mot de passe oublié ?",
                 style: TextStyle(color: Color(0xFF7BC1B7)),
               ),
             ),

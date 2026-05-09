@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+class ProfilePge extends StatelessWidget {
+  const ProfilePge({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -10,7 +10,6 @@ class ProfilePage extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-
             // ── Header avec avatar et nom ──
             Container(
               width: double.infinity,
@@ -105,18 +104,13 @@ class ProfilePage extends StatelessWidget {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("Déconnexion"),
         content: const Text("Voulez-vous vraiment vous déconnecter ?"),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text(
-              "Annuler",
-              style: TextStyle(color: Colors.grey),
-            ),
+            child: const Text("Annuler", style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(

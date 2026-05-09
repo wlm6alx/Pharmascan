@@ -21,11 +21,9 @@ class _ModifierProfilPageState extends State<ModifierProfilPage> {
   void initState() {
     super.initState();
     _usernameController = TextEditingController(
-      text: widget.user?.nomUtilisateur ?? '',
+      text: widget.user?.username ?? '',
     );
-    _emailController = TextEditingController(
-      text: widget.user?.email ?? '',
-    );
+    _emailController = TextEditingController(text: widget.user?.email ?? '');
   }
 
   @override
@@ -40,9 +38,7 @@ class _ModifierProfilPageState extends State<ModifierProfilPage> {
 
     if (widget.user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Aucun utilisateur a modifier.'),
-        ),
+        const SnackBar(content: Text('Aucun utilisateur a modifier.')),
       );
       return;
     }
@@ -52,7 +48,7 @@ class _ModifierProfilPageState extends State<ModifierProfilPage> {
     });
 
     final Users userModifie = widget.user!.copyWith(
-      nomUtilisateur: _usernameController.text.trim(),
+      username: _usernameController.text.trim(),
       email: _emailController.text.trim(),
     );
 
@@ -66,24 +62,20 @@ class _ModifierProfilPageState extends State<ModifierProfilPage> {
 
     if (!succes) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Impossible de modifier ce profil.'),
-        ),
+        const SnackBar(content: Text('Impossible de modifier ce profil.')),
       );
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Profil modifie avec succes.'),
-      ),
+      const SnackBar(content: Text('Profil modifie avec succes.')),
     );
     Navigator.of(context).pop(true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final String displayName = widget.user?.nomUtilisateur ?? 'Utilisateur';
+    final String displayName = widget.user?.username ?? 'Utilisateur';
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -244,10 +236,7 @@ class _ProfileInputField extends StatelessWidget {
       validator: validator,
       decoration: InputDecoration(
         hintText: hintText,
-        hintStyle: TextStyle(
-          color: Colors.grey.shade400,
-          fontSize: 15,
-        ),
+        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(
@@ -260,10 +249,7 @@ class _ProfileInputField extends StatelessWidget {
         ),
         focusedBorder: const OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(12)),
-          borderSide: BorderSide(
-            color: Color(0xFF1193AB),
-            width: 1.5,
-          ),
+          borderSide: BorderSide(color: Color(0xFF1193AB), width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -271,10 +257,7 @@ class _ProfileInputField extends StatelessWidget {
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(
-            color: Colors.red,
-            width: 1.5,
-          ),
+          borderSide: const BorderSide(color: Colors.red, width: 1.5),
         ),
       ),
     );
