@@ -18,10 +18,6 @@ class BarreDeRecherche extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: onBack ?? () => Navigator.pop(context),
-        ),
         Expanded(
           child: Container(
             height: 45,

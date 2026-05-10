@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:pharmascan/Pages/ScanScreen.dart';
 import 'package:pharmascan/modele/modeleMedocs.dart';
-import 'package:pharmascan/services/MedocService.dart';
+import 'package:pharmascan/services/serviceMedicament.dart';
 import 'package:pharmascan/widgets/BarreDeRecherche.dart';
 
 class PageDeScan extends StatefulWidget {
@@ -27,15 +27,11 @@ class _PageDeScanState extends State<PageDeScan>
   @override
   void initState() {
     super.initState();
-
     _animController = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
     );
-    _fadeAnim = CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeOut,
-    );
+    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _animController.forward();
     _chargerHistorique();
   }
@@ -57,13 +53,13 @@ class _PageDeScanState extends State<PageDeScan>
       final List<Medoc> medocs = await Medocservice.loadMedocs();
 
       setState(() {
-        _historique = medocs.take(6).toList();
-        _resultats = _historique;
+        _historique = medocs;
+        _resultats = medocs;
         _chargement = false;
       });
     } catch (e) {
       setState(() {
-        _erreur = "Impossible de charger les medicaments.";
+        _erreur = "Impossible de charger les médicaments.";
         _chargement = false;
       });
     }
@@ -73,6 +69,22 @@ class _PageDeScanState extends State<PageDeScan>
     setState(() {
       _resultats = _filtrerHistorique(valeur);
     });
+  }
+
+  List<Medoc> _filtrerHistorique(String valeur) {
+    if (valeur.isEmpty) return _historique;
+    final recherche = valeur.toLowerCase();
+    return _historique.where((medoc) {
+      final nomMatch = medoc.nom.toLowerCase().contains(recherche);
+      final dosageMatch =
+          medoc.dosage?.toLowerCase().contains(recherche) ?? false;
+      final codeMatch =
+          (medoc.codeBarre ?? medoc.code_barre)?.toLowerCase().contains(
+            recherche,
+          ) ??
+          false;
+      return nomMatch || dosageMatch || codeMatch;
+    }).toList();
   }
 
   void _ouvrirScanner() {
@@ -96,64 +108,47 @@ class _PageDeScanState extends State<PageDeScan>
   }
 
   Future<void> _traiterScan(BarcodeCapture barcodeCapture) async {
-    final Barcode? premierBarcode = barcodeCapture.barcodes.isNotEmpty
-        ? barcodeCapture.barcodes.first
+    final String? code = barcodeCapture.barcodes.isNotEmpty
+        ? barcodeCapture.barcodes.first.rawValue
         : null;
-    final String? code = premierBarcode?.rawValue;
 
     if (!mounted) return;
 
     if (code == null || code.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Aucun code exploitable n\'a ete detecte.'),
-        ),
+        const SnackBar(content: Text("Aucun code exploitable détecté.")),
       );
       return;
     }
 
     setState(() => _scanEnCours = true);
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Verification du medicament...')),
+      const SnackBar(content: Text("Vérification du médicament...")),
     );
 
     try {
+      // 👇 Vérifie dans Supabase et sauvegarde automatiquement
       final verification = await Medocservice.verifierCodeBarre(code);
-      final medocScanne = Medoc.fromVerification(verification);
 
       if (!mounted) return;
 
-      setState(() {
-        _historique = [medocScanne, ..._historique].take(6).toList();
-        _resultats = _filtrerHistorique(_searchController.text);
-        _scanEnCours = false;
-      });
+      // 👇 Recharge l'historique depuis le stockage local
+      await _chargerHistorique();
+
+      setState(() => _scanEnCours = false);
 
       _afficherResultatScan(verification);
     } catch (e) {
       if (!mounted) return;
-
       setState(() => _scanEnCours = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Impossible de verifier ce medicament maintenant.'),
+          content: Text("Impossible de vérifier ce médicament."),
           backgroundColor: Colors.red,
         ),
       );
     }
-  }
-
-  List<Medoc> _filtrerHistorique(String valeur) {
-    if (valeur.isEmpty) return _historique;
-
-    return _historique.where((medoc) {
-      final recherche = valeur.toLowerCase();
-      final nomMatch = medoc.nom.toLowerCase().contains(recherche);
-      final dosageMatch = medoc.dosage.toLowerCase().contains(recherche);
-      final codeMatch = medoc.code_barre?.toLowerCase().contains(recherche) ??
-          false;
-      return nomMatch || dosageMatch || codeMatch;
-    }).toList();
   }
 
   void _afficherResultatScan(VerificationMedicament verification) {
@@ -178,22 +173,63 @@ class _PageDeScanState extends State<PageDeScan>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Code-barres : ${verification.code_barre}'),
-            if (verification.nom != null) ...[
-              const SizedBox(height: 8),
-              Text('Nom : ${verification.nom}'),
-            ],
-            if (verification.dosage != null &&
-                verification.dosage!.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('Dosage : ${verification.dosage}'),
-            ],
+            _ligneInfo("Code barre", verification.code_barre),
+            if (verification.nom != null) _ligneInfo("Nom", verification.nom!),
+            if (verification.dosage != null)
+              _ligneInfo("Dosage", verification.dosage!),
+            if (verification.fabricant != null)
+              _ligneInfo("Fabricant", verification.fabricant!),
+            if (verification.forme != null)
+              _ligneInfo("Forme", verification.forme!),
+            if (verification.dateExpiration != null)
+              _ligneInfo(
+                "Expiration",
+                '${verification.dateExpiration!.day.toString().padLeft(2, '0')}/'
+                    '${verification.dateExpiration!.month.toString().padLeft(2, '0')}/'
+                    '${verification.dateExpiration!.year}',
+                couleur: verification.dateExpiration!.isBefore(DateTime.now())
+                    ? Colors.red
+                    : null,
+              ),
+            if (verification.prix != null && verification.prix! > 0)
+              _ligneInfo(
+                "Prix",
+                "${verification.prix!.toStringAsFixed(0)} FCFA",
+              ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ligneInfo(String label, String valeur, {Color? couleur}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 90,
+            child: Text(
+              "$label :",
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              valeur,
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                color: couleur ?? Colors.black87,
+                fontSize: 12,
+              ),
+            ),
           ),
         ],
       ),
@@ -214,7 +250,7 @@ class _PageDeScanState extends State<PageDeScan>
               children: [
                 const SizedBox(height: 20),
                 const Text(
-                  "Scan de medicaments",
+                  "Scan de médicaments",
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -228,19 +264,27 @@ class _PageDeScanState extends State<PageDeScan>
                   onChanged: _rechercher,
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  "Medicaments scannes recemment",
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.5,
-                    color: Color(0xFF1193AB),
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      "Médicaments scannés récemment",
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.5,
+                        color: Color(0xFF1193AB),
+                      ),
+                    ),
+                    // 👇 Compteur de scans
+                    Text(
+                      "${_historique.length}/6",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
-                Expanded(
-                  child: _buildContenu(),
-                ),
+                Expanded(child: _buildContenu()),
                 const SizedBox(height: 100),
               ],
             ),
@@ -251,7 +295,7 @@ class _PageDeScanState extends State<PageDeScan>
         padding: const EdgeInsets.only(bottom: 100),
         child: FloatingActionButton(
           onPressed: _scanEnCours ? null : _ouvrirScanner,
-          tooltip: _scanEnCours ? 'Verification en cours' : 'Scanner',
+          tooltip: _scanEnCours ? "Vérification en cours" : "Scanner",
           backgroundColor: const Color(0xFF1193AB),
           elevation: 6,
           shape: const CircleBorder(),
@@ -301,7 +345,7 @@ class _PageDeScanState extends State<PageDeScan>
               onPressed: _chargerHistorique,
               icon: const Icon(Icons.refresh, color: Colors.white),
               label: const Text(
-                "Reessayer",
+                "Réessayer",
                 style: TextStyle(color: Colors.white),
               ),
             ),
@@ -315,12 +359,12 @@ class _PageDeScanState extends State<PageDeScan>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.search_off, size: 60, color: Colors.grey),
+            const Icon(Icons.qr_code_scanner, size: 60, color: Colors.grey),
             const SizedBox(height: 16),
             Text(
               _searchController.text.isEmpty
-                  ? "Aucun scan recent"
-                  : 'Aucun resultat pour "${_searchController.text}"',
+                  ? "Aucun scan récent"
+                  : 'Aucun résultat pour "${_searchController.text}"',
               style: const TextStyle(color: Colors.grey, fontSize: 15),
               textAlign: TextAlign.center,
             ),
@@ -328,7 +372,7 @@ class _PageDeScanState extends State<PageDeScan>
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
-                  "Appuyez sur + pour scanner un medicament",
+                  "Appuyez sur + pour scanner un médicament",
                   style: TextStyle(color: Colors.grey, fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
@@ -348,102 +392,206 @@ class _PageDeScanState extends State<PageDeScan>
       ),
       itemCount: _resultats.length,
       itemBuilder: (context, index) {
-        return _CarteMedicament(medoc: _resultats[index]);
+        return _CarteMedicament(
+          medoc: _resultats[index],
+          onTap: () => _afficherDetailMedoc(_resultats[index]),
+        );
       },
+    );
+  }
+
+  // 👇 BottomSheet détails d'un scan de l'historique
+  void _afficherDetailMedoc(Medoc medoc) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+
+            // Nom + statut
+            Row(
+              children: [
+                const Icon(Icons.medication, color: Color(0xFF1193AB)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    medoc.nom,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: medoc.trouve
+                        ? Colors.green.withOpacity(0.1)
+                        : Colors.red.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    medoc.trouve ? "Authentifié" : "Suspect",
+                    style: TextStyle(
+                      color: medoc.trouve ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            _ligneInfo(
+              "Code barre",
+              medoc.codeBarre ?? medoc.code_barre ?? 'Non spécifié',
+            ),
+            if (medoc.dosage != null) _ligneInfo("Dosage", medoc.dosage!),
+            if (medoc.forme != null) _ligneInfo("Forme", medoc.forme!),
+            if (medoc.fabricant != null)
+              _ligneInfo("Fabricant", medoc.fabricant!),
+            _ligneInfo(
+              "Date d'expiration",
+              medoc.dateExpirationFormatee,
+              couleur: medoc.estExpire ? Colors.red : null,
+            ),
+            if (medoc.prix > 0)
+              _ligneInfo("Prix", "${medoc.prix.toStringAsFixed(0)} FCFA"),
+
+            const SizedBox(height: 8),
+            _ligneInfo("Scanné le", medoc.dateHeure),
+          ],
+        ),
+      ),
     );
   }
 }
 
+// ── Carte médicament ──
 class _CarteMedicament extends StatelessWidget {
   final Medoc medoc;
+  final VoidCallback? onTap;
 
-  const _CarteMedicament({required this.medoc});
+  const _CarteMedicament({required this.medoc, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.07),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.07),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(
+            color: medoc.trouve
+                ? Colors.transparent
+                : Colors.red.withOpacity(0.3),
+            width: 1.5,
           ),
-        ],
-        border: Border.all(
-          color: medoc.trouve
-              ? Colors.transparent
-              : Colors.red.withOpacity(0.3),
-          width: 1.5,
         ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF5F5F5),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.asset(
-                medoc.imageAsset,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.medication,
-                  color: Color(0xFF1193AB),
-                  size: 36,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            medoc.nom,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          Text(
-            medoc.dosage,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 10, color: Colors.grey),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            medoc.dateHeure,
-            style: TextStyle(
-              fontSize: 9,
-              color: medoc.trouve ? const Color(0xFF1193AB) : Colors.red,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          if (!medoc.trouve)
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
             Container(
-              margin: const EdgeInsets.only(top: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              width: 60,
+              height: 60,
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+                color: const Color(0xFFF5F5F5),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text(
-                "Non trouve",
-                style: TextStyle(
-                  fontSize: 8,
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.asset(
+                  medoc.imageAsset,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.medication,
+                    color: Color(0xFF1193AB),
+                    size: 36,
+                  ),
                 ),
               ),
             ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              medoc.nom,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            if (medoc.dosage != null)
+              Text(
+                medoc.dosage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
+              ),
+            const SizedBox(height: 4),
+            Text(
+              medoc.dateHeure,
+              style: TextStyle(
+                fontSize: 9,
+                color: medoc.trouve ? const Color(0xFF1193AB) : Colors.red,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (!medoc.trouve)
+              Container(
+                margin: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  "Non trouvé",
+                  style: TextStyle(
+                    fontSize: 8,
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

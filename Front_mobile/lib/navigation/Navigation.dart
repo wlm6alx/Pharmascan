@@ -18,13 +18,20 @@ class _MainNavigationState extends State<MainNavigation> {
   final ValueNotifier<Pharmacie?> _routeRequest = ValueNotifier(null);
 
   late final List<Widget> _pages;
+  // Dans _MainNavigationState
+  void _naviguerVersMapAvecPharmacie(Pharmacie pharmacie) {
+    setState(() {
+      _currentIndex = 0; // 👈 retourne sur la HomePage (map)
+    });
+    // 👇 TODO: passer la pharmacie à HomePage pour lancer l'itinéraire
+  }
 
   @override
   void initState() {
     super.initState();
     _pages = [
       Home(routeRequest: _routeRequest),
-      SearchPage(onPharmacySelected: _openRouteToPharmacy),
+      SearchPage(onPharmacySelected: _naviguerVersMapAvecPharmacie),
       PageDeScan(),
       ProfilePage(),
     ];
