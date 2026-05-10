@@ -1,49 +1,101 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
 import Sidebar from '../components/sidebar';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
-  BarChart, Bar
-} from 'recharts';
-
-// ─── Données factices (à remplacer par Supabase plus tard) ───
-const evolutionData = [
-  { date: '29 Oct', patients: 80,  pharmaciesOuvertes: 100, pharmaciesTotales: 90  },
-  { date: '01 Nov', patients: 100, pharmaciesOuvertes: 105, pharmaciesTotales: 95  },
-  { date: '05 Nov', patients: 120, pharmaciesOuvertes: 110, pharmaciesTotales: 100 },
-  { date: '09 Nov', patients: 140, pharmaciesOuvertes: 112, pharmaciesTotales: 105 },
-  { date: '13 Nov', patients: 160, pharmaciesOuvertes: 115, pharmaciesTotales: 110 },
-  { date: '17 Nov', patients: 190, pharmaciesOuvertes: 118, pharmaciesTotales: 115 },
-  { date: '21 Nov', patients: 220, pharmaciesOuvertes: 120, pharmaciesTotales: 120 },
-  { date: '25 Nov', patients: 250, pharmaciesOuvertes: 125, pharmaciesTotales: 125 },
-];
-
-const scanData = [
-  { mois: 'Oct', authentiques: 320, suspects: 45 },
-  { mois: 'Nov', authentiques: 410, suspects: 30 },
-  { mois: 'Déc', authentiques: 390, suspects: 55 },
-  { mois: 'Jan', authentiques: 480, suspects: 25 },
-  { mois: 'Fév', authentiques: 520, suspects: 40 },
-  { mois: 'Mar', authentiques: 600, suspects: 20 },
-];
-
-const recentActions = [
-  { id: 1, type: 'Pharmacie',  action: 'Nouvelle inscription',   nom: 'Pharmacie Akwa',        statut: 'En attente', couleur: '#f0a500' },
-  { id: 2, type: 'Scan',      action: 'Médicament suspect',      nom: 'Ibuprofène 400mg',      statut: 'Alerte',     couleur: '#e74c3c' },
-  { id: 3, type: 'Pharmacie', action: 'Compte validé',           nom: 'Pharmacie Bonanjo',     statut: 'Validé',     couleur: '#2ecc71' },
-  { id: 4, type: 'Patient',   action: 'Nouveau compte',          nom: 'Patient #1284',         statut: 'Actif',      couleur: '#2ecc71' },
-  { id: 5, type: 'Scan',      action: 'Médicament authentique',  nom: 'Paracétamol 500mg',     statut: 'OK',         couleur: '#2ecc71' },
-];
+import { testSupabaseConnection, testPharmaciesData } from '../test-supabase';
+import { supabase } from '../supabase';
+import { TABLES, mapData } from '../database-mapper';
 
 // ─── Couleurs ───
 const VERT    = '#4ecdc4';
 const ORANGE  = '#f0a500';
-const ROUGE   = '#e74c3c';
 const BG      = '#f0f4f0';
 
 export default function Dashboard() {
-  const navigate = useNavigate();
+  const [connectionStatus, setConnectionStatus] = useState('Test en cours...');
+  const [loading, setLoading] = useState(true);
+  
+  // Données factices - à remplacer par Supabase
+  const [recentActions, setRecentActions] = useState([]);
+  const [statsData, setStatsData] = useState({
+    patients: 0,
+    pharmacies: 0,
+    pharmaciens: 0,
+    scansToday: 0
+  });
+  
+  // Fonctions pour récupérer les données depuis Supabase
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      
+      // Récupérer les statistiques principales
+      const { data: stats, error: statsError } = await supabase
+        .from('users')
+        .select('role', { count: 'exact' });
+      
+      if (statsError) throw statsError;
+      
+      // Calculer les statistiques
+      const patientsCount = stats?.filter(u => u.role === 'patient').length || 0;
+      const pharmaciensCount = stats?.filter(u => u.role === 'pharmacien').length || 0;
+      
+      setStatsData({
+        patients: patientsCount,
+        pharmacies: 0, // À implémenter avec table pharmacies
+        pharmaciens: pharmaciensCount,
+        scansToday: 0 // À implémenter avec table scans
+      });
+      
+      // Récupérer l'activité récente
+      const { data: activities, error: activitiesError } = await supabase
+        .from('users')
+        .select('name, surname, role, created_at')
+        .order('created_at', { ascending: false })
+        .limit(5);
+      
+      if (activitiesError) throw activitiesError;
+      
+      // Transformer en format d'activité
+      const formattedActivities = activities?.map(user => ({
+        id: user.id,
+        type: 'Utilisateur',
+        action: `Nouveau ${user.role}`,
+        nom: `${user.name} ${user.surname || ''}`,
+        statut: 'Actif',
+        couleur: '#2ecc71'
+      })) || [];
+      
+      setRecentActions(formattedActivities);
+      
+    } catch (error) {
+      console.error('Erreur lors de la récupération des données:', error);
+      setConnectionStatus('❌ Erreur de chargement des données');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Tester la connexion à Supabase au chargement du dashboard
+    const testConnection = async () => {
+      try {
+        const isConnected = await testSupabaseConnection();
+        setConnectionStatus(isConnected ? '✅ Connecté à Supabase' : '❌ Erreur de connexion');
+        
+        if (isConnected) {
+          await fetchDashboardData();
+        }
+        
+        // Tester la récupération des données
+        const pharmaciesResult = await testPharmaciesData();
+        console.log('Résultat pharmacies:', pharmaciesResult);
+      } catch (error) {
+        setConnectionStatus('❌ Erreur de test');
+        console.error('Erreur de test:', error);
+      }
+    };
+
+    testConnection();
+  }, []);
 
   return (
     <div style={styles.page}>
@@ -58,6 +110,7 @@ export default function Dashboard() {
             <p style={styles.date}>{new Date().toLocaleDateString('fr-FR', {
               weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
             })}</p>
+            <p style={styles.connectionStatus}>{connectionStatus}</p>
           </div>
           <div style={styles.headerRight}>
             <div style={styles.searchBox}>
@@ -72,31 +125,31 @@ export default function Dashboard() {
         <div style={styles.cardsRow}>
           <StatCard
             title="Patients inscrits"
-            value="430"
+            value={statsData.patients.toString()}
             icon="👥"
             color={ORANGE}
-            sous="+12 cette semaine"
+            sous="Inscrits"
           />
           <StatCard
             title="Pharmacies"
-            value="148"
+            value={statsData.pharmacies.toString()}
             icon="🏥"
             color={VERT}
-            sous="dont 120 actives"
+            sous="Enregistrées"
           />
           <StatCard
             title="Comptes pharmacien"
-            value="234"
+            value={statsData.pharmaciens.toString()}
             icon="👨‍⚕️"
             color="#3498db"
-            sous="+5 ce mois"
+            sous="Actifs"
           />
           <StatCard
             title="Scans aujourd'hui"
-            value="87"
+            value={statsData.scansToday.toString()}
             icon="📷"
             color="#9b59b6"
-            sous="3 suspects détectés"
+            sous="Scans"
           />
         </div>
 
@@ -108,39 +161,10 @@ export default function Dashboard() {
             <h3 style={styles.chartTitle}>
               📈 Statistique d'évolution (30 derniers jours)
             </h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={evolutionData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="patients"
-                  stroke={ORANGE}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  name="Patients connectés"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="pharmaciesOuvertes"
-                  stroke={VERT}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  name="Pharmacies ouvertes"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="pharmaciesTotales"
-                  stroke="#3498db"
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  name="Pharmacies totales"
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <div style={styles.emptyChart}>
+              <p>📊 Données en cours de chargement...</p>
+              <p style={styles.emptySub}>Les graphiques seront disponibles une fois les données collectées</p>
+            </div>
           </div>
 
           {/* Graphique 2 — Scans */}
@@ -148,17 +172,10 @@ export default function Dashboard() {
             <h3 style={styles.chartTitle}>
               💊 Scans médicaments (6 derniers mois)
             </h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={scanData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                <XAxis dataKey="mois" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="authentiques" fill={VERT}   name="Authentiques" radius={[4,4,0,0]} />
-                <Bar dataKey="suspects"     fill={ROUGE}  name="Suspects"     radius={[4,4,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div style={styles.emptyChart}>
+              <p>📊 Données en cours de chargement...</p>
+              <p style={styles.emptySub}>Les graphiques seront disponibles une fois les données collectées</p>
+            </div>
           </div>
 
         </div>
@@ -203,21 +220,10 @@ export default function Dashboard() {
           {/* Pharmacies en attente */}
           <div style={{ ...styles.tableBox, maxWidth: 280 }}>
             <h3 style={styles.chartTitle}>⏳ En attente de validation</h3>
-            {['Pharmacie Bali', 'Pharmacie Logpom', 'Pharmacie Omnisport'].map((nom, i) => (
-              <div key={i} style={styles.pendingCard}>
-                <span style={styles.pendingIcon}>🏥</span>
-                <div style={{ flex: 1 }}>
-                  <p style={styles.pendingName}>{nom}</p>
-                  <p style={styles.pendingDate}>Inscrite il y a {i + 1} jour(s)</p>
-                </div>
-                <button
-                  style={styles.validateBtn}
-                  onClick={() => navigate('/pharmacies-attente')}
-                >
-                  Voir
-                </button>
-              </div>
-            ))}
+            <div style={styles.emptyChart}>
+              <p>📋 Aucune pharmacie en attente</p>
+              <p style={styles.emptySub}>Les nouvelles demandes apparaîtront ici</p>
+            </div>
           </div>
 
         </div>
@@ -431,5 +437,25 @@ const styles = {
     borderRadius: 6,
     fontSize: 12,
     cursor: 'pointer',
+  },
+  connectionStatus: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 5,
+    fontWeight: '500',
+  },
+  emptyChart: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 220,
+    color: '#999',
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: 12,
+    color: '#bbb',
+    marginTop: 8,
   },
 };

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import logo from '../assets/images/Logo.jpg';
+import authService from '../services/auth';
 
 const VERT = '#4ecdc4';
 const VERT_FONCE = '#2bb5aa';
@@ -10,18 +11,47 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const navigate = useNavigate();
+    const navigate = useNavigate();
 
-const handleLogin = () => {
-  if (username === 'admin' && password === 'admin') {
-    // Sauvegarde la session
-    localStorage.setItem('adminConnected', 'true');
-    localStorage.setItem('adminUsername', username);
-    navigate('/dashboard');
-  } else {
-    setError('Nom d\'utilisateur ou mot de passe incorrect');
-  }
-};
+  // Vérifier si déjà connecté
+  useEffect(() => {
+    if (authService.isLoggedIn()) {
+      navigate('/dashboard');
+    }
+  }, [navigate]);
+
+  // Connexion avec Supabase
+  const handleLogin = async () => {
+    if (!username || !password) {
+      setError('Veuillez remplir tous les champs');
+      return;
+    }
+
+    setError('');
+
+    try {
+      console.log(' Tentative de connexion avec:', username);
+      
+      const result = await authService.signIn(username, password);
+      
+      if (result.success) {
+        console.log(' Connexion réussie');
+        
+        // Vérifier si l'utilisateur est admin
+        if (authService.isAdmin()) {
+          navigate('/dashboard');
+        } else {
+          setError('Accès réservé aux administrateurs');
+          await authService.signOut();
+        }
+      } else {
+        setError(result.error || 'Erreur de connexion');
+      }
+    } catch (err) {
+      console.error(' Erreur connexion:', err);
+      setError('Erreur de connexion au serveur');
+    }
+  };
 
   // Connexion avec la touche Entrée
   const handleKeyPress = (e) => {
@@ -42,11 +72,11 @@ const handleLogin = () => {
         {/* Titre centré */}
         <h2 style={styles.title}>Se connecter</h2>
 
-        {/* Champ username */}
-        <label style={styles.label}>Nom d'utilisateur</label>
+        {/* Champ email */}
+        <label style={styles.label}>Email</label>
         <input
           style={styles.input}
-          placeholder="Entrer votre nom d'utilisateur"
+          placeholder="Entrer votre email"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           onKeyPress={handleKeyPress}

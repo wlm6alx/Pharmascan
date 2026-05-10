@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import ProtectedRoute             from './components/ProtectedRoute';
 import Login                      from './pages/login';
+import Register                   from './pages/Register';
 import Dashboard                  from './pages/Dashboard';
 import Profil                     from './pages/Profil';
 import Pharmacies                 from './pages/Pharmacies';
@@ -11,14 +12,27 @@ import PharmacieAttenteDetail     from './pages/PharmacieAttenteDetail';
 import Utilisateurs               from './pages/Utilisateurs';
 import MedicamentsSuspects        from './pages/MedicamentsSuspects';
 import Notifications              from './pages/Notifications';
+import authService                from './services/auth';
 
 function App() {
+  // Initialiser l'authentification au chargement de l'app
+  useEffect(() => {
+    const initializeAuth = async () => {
+      console.log(' Initialisation de l\'authentification...');
+      await authService.initialize();
+      console.log(' Authentification initialisée');
+    };
+
+    initializeAuth();
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>
 
-        {/* Route publique */}
+        {/* Routes publiques */}
         <Route path="/" element={<Login />} />
+        <Route path="/register" element={<Register />} />
 
         {/* Routes protégées */}
         <Route path="/dashboard" element={

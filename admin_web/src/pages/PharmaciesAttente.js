@@ -1,33 +1,90 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/sidebar';
+import { supabase } from '../supabase';
 
 const VERT = '#4ecdc4';
-
-const attenteData = [
-  { id: 1, nom: "Pharmacie d'Akwa",      gerant: 'M. MALTIN Albert',      contact: '+237 673847362' },
-  { id: 2, nom: 'Pharmacie Soleil',       gerant: 'M. Cedric GILBERT',     contact: '+237 645783392' },
-  { id: 3, nom: 'Pharmacie Health',       gerant: 'M. TANGY Délor',        contact: '+237 656387297' },
-  { id: 4, nom: 'Pharmacie Couronne',     gerant: 'Mme DJUBOUTSI Hélène',  contact: '+237 648230185' },
-  { id: 5, nom: 'Pharmacie La Réussite',  gerant: 'M. YUISSIN Espert',     contact: '+237 627183749' },
-  { id: 6, nom: 'Pharmacie du repos',     gerant: 'M. ZANGUY Kerneu',      contact: '+237 683766755' },
-  { id: 7, nom: 'Pharmacie Le Secret',    gerant: 'M. BARYUN Ingris',      contact: '+237 690784537' },
-  { id: 8, nom: 'Pharmacie Saint Ignace', gerant: 'M. Ignace REUSSIN',     contact: '+237 623847297' },
-];
 
 export default function PharmaciesAttente() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [liste, setListe] = useState(attenteData);
+  const [attenteData, setAttenteData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const filtered = liste.filter(p =>
-    p.nom.toLowerCase().includes(search.toLowerCase())
+  // Fonction pour récupérer les pharmacies en attente depuis Supabase
+  const fetchPharmaciesAttente = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('pharmacies')
+        .select('*')
+        .eq('statut', 'en_attente')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setAttenteData(data || []);
+    } catch (err) {
+      console.error('Erreur lors de la récupération des pharmacies en attente:', err);
+      setError('Impossible de charger les pharmacies en attente');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPharmaciesAttente();
+  }, []);
+
+  const filtered = attenteData.filter(p =>
+    p.nom && p.nom.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleSupprimer = (e, id) => {
-    e.stopPropagation(); // empêche le clic de naviguer
-    setListe(liste.filter(p => p.id !== id));
+  const handleSupprimer = async (e, id) => {
+    e.stopPropagation();
+    try {
+      const { error } = await supabase
+        .from('pharmacies')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      // Mettre à jour l'état local
+      setAttenteData(attenteData.filter(p => p.id !== id));
+    } catch (err) {
+      console.error('Erreur lors de la suppression:', err);
+    }
   };
+
+  if (loading) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.loadingContainer}>
+            <p>Chargement des pharmacies en attente...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.errorContainer}>
+            <p>❌ {error}</p>
+            <button style={styles.retryBtn} onClick={fetchPharmaciesAttente}>
+              Réessayer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.page}>
@@ -64,42 +121,49 @@ export default function PharmaciesAttente() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
-                <tr
-                  key={p.id}
-                  style={styles.tr}
-                  onClick={() => navigate(`/pharmacies-attente/${p.id}`)}
-                >
-                  <td style={{ ...styles.td, color: VERT, fontWeight: '600', cursor: 'pointer' }}>
-                    {p.nom}
-                  </td>
-                  <td style={styles.td}>{p.gerant}</td>
-                  <td style={styles.td}>{p.contact}</td>
-                  <td style={styles.td}>
-                    <div style={styles.actions}>
-                      {/* Bouton modifier */}
-                      <button
-                        style={styles.editBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/pharmacies-attente/${p.id}`);
-                        }}
-                        title="Voir détails"
-                      >
-                        ✏️
-                      </button>
-                      {/* Bouton supprimer */}
-                      <button
-                        style={styles.deleteBtn}
-                        onClick={(e) => handleSupprimer(e, p.id)}
-                        title="Supprimer"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filtered.length === 0 ? (
+                <div style={styles.emptyContainer}>
+                  <p>📋 Aucune pharmacie en attente de validation</p>
+                  <p style={styles.emptySub}>Les nouvelles demandes apparaîtront ici</p>
+                </div>
+              ) : (
+                filtered.map((p) => (
+                  <tr
+                    key={p.id}
+                    style={styles.tr}
+                    onClick={() => navigate(`/pharmacies-attente/${p.id}`)}
+                  >
+                    <td style={{ ...styles.td, color: VERT, fontWeight: '600', cursor: 'pointer' }}>
+                      {p.nom}
+                    </td>
+                    <td style={styles.td}>{p.gerant || 'Non spécifié'}</td>
+                    <td style={styles.td}>{p.contact || 'Non spécifié'}</td>
+                    <td style={styles.td}>
+                      <div style={styles.actions}>
+                        {/* Bouton modifier */}
+                        <button
+                          style={styles.editBtn}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/pharmacies-attente/${p.id}`);
+                          }}
+                          title="Voir détails"
+                        >
+                          ✏️
+                        </button>
+                        {/* Bouton supprimer */}
+                        <button
+                          style={styles.deleteBtn}
+                          onClick={(e) => handleSupprimer(e, p.id)}
+                          title="Supprimer"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
 
@@ -132,4 +196,43 @@ const styles = {
   editBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 18 },
   deleteBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 18 },
   empty: { textAlign: 'center', padding: 30, color: '#aaa' },
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    gap: 20,
+  },
+  retryBtn: {
+    padding: '10px 20px',
+    backgroundColor: VERT,
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontSize: 14,
+  },
+  emptyContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 200,
+    color: '#999',
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: 12,
+    color: '#bbb',
+    marginTop: 8,
+  },
 };

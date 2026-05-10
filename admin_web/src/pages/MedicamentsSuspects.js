@@ -1,18 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/sidebar';
+import { supabase } from '../supabase';
 
 const ROUGE  = '#e74c3c';
 const ORANGE = '#f0a500';
 const VERT   = '#4ecdc4';
-
-const suspectsData = [
-  { id: 1, nom: 'Ibuprofène 400mg',    pharmacie: 'Pharmacie Akwa',      date: '15/03/2026', scanneur: 'Alexander B.', niveau: 'Élevé'   },
-  { id: 2, nom: 'Paracétamol 500mg',   pharmacie: 'Pharmacie NSIMEYONG', date: '14/03/2026', scanneur: 'Amina M.',     niveau: 'Moyen'   },
-  { id: 3, nom: 'Amoxicilline 250mg',  pharmacie: 'Pharmacie Soleil',    date: '13/03/2026', scanneur: 'Jean M.',      niveau: 'Élevé'   },
-  { id: 4, nom: 'Ventoline 100mcg',    pharmacie: 'Pharmacie YASSA',     date: '12/03/2026', scanneur: 'Rosette N.',   niveau: 'Faible'  },
-  { id: 5, nom: 'Coartem 80/480mg',    pharmacie: 'Pharmacie Bonanjo',   date: '11/03/2026', scanneur: 'Marie E.',     niveau: 'Élevé'   },
-  { id: 6, nom: 'Metformine 850mg',    pharmacie: 'Pharmacie NDOKOTI',   date: '10/03/2026', scanneur: 'Paul K.',      niveau: 'Moyen'   },
-];
 
 const niveauConfig = {
   'Élevé'  : { color: ROUGE,  bg: ROUGE  + '15', icon: '🔴' },
@@ -21,23 +13,91 @@ const niveauConfig = {
 };
 
 export default function MedicamentsSuspects() {
-  const [search,  setSearch]  = useState('');
-  const [filtre,  setFiltre]  = useState('Tous');
-  const [liste,   setListe]   = useState(suspectsData);
+  const [search, setSearch] = useState('');
+  const [filtre, setFiltre] = useState('Tous');
+  const [suspectsData, setSuspectsData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [confirm, setConfirm] = useState(null);
-  const [detail,  setDetail]  = useState(null);
+  const [detail, setDetail] = useState(null);
 
-  const filtered = liste.filter(m => {
-    const matchSearch = m.nom.toLowerCase().includes(search.toLowerCase())
-      || m.pharmacie.toLowerCase().includes(search.toLowerCase());
+  // Fonction pour récupérer les médicaments suspects depuis Supabase
+  const fetchSuspectsData = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('medicaments_suspects')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setSuspectsData(data || []);
+    } catch (err) {
+      console.error('Erreur lors de la récupération des médicaments suspects:', err);
+      setError('Impossible de charger les médicaments suspects');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSuspectsData();
+  }, []);
+
+  const filtered = suspectsData.filter(m => {
+    const matchSearch = m.nom && m.pharmacie && (
+      m.nom.toLowerCase().includes(search.toLowerCase()) ||
+      m.pharmacie.toLowerCase().includes(search.toLowerCase())
+    );
     const matchNiveau = filtre === 'Tous' || m.niveau === filtre;
     return matchSearch && matchNiveau;
   });
 
-  const supprimer = (id) => {
-    setListe(liste.filter(m => m.id !== id));
-    setConfirm(null);
+  const supprimer = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('medicaments_suspects')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      // Mettre à jour l'état local
+      setSuspectsData(suspectsData.filter(m => m.id !== id));
+      setConfirm(null);
+    } catch (err) {
+      console.error('Erreur lors de la suppression:', err);
+    }
   };
+
+  if (loading) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.loadingContainer}>
+            <p>Chargement des médicaments suspects...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.errorContainer}>
+            <p>❌ {error}</p>
+            <button style={styles.retryBtn} onClick={fetchSuspectsData}>
+              Réessayer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.page}>
@@ -64,10 +124,10 @@ export default function MedicamentsSuspects() {
 
         {/* Stats */}
         <div style={styles.statsRow}>
-          <StatCard icon="🔴" label="Niveau élevé"  value={liste.filter(m=>m.niveau==='Élevé').length}  color={ROUGE}  />
-          <StatCard icon="🟡" label="Niveau moyen"  value={liste.filter(m=>m.niveau==='Moyen').length}  color={ORANGE} />
-          <StatCard icon="🟢" label="Niveau faible" value={liste.filter(m=>m.niveau==='Faible').length} color={VERT}   />
-          <StatCard icon="📊" label="Total signalés" value={liste.length}                               color="#555"   />
+          <StatCard icon="🔴" label="Niveau élevé"  value={suspectsData.filter(m=>m.niveau==='Élevé').length}  color={ROUGE}  />
+          <StatCard icon="🟡" label="Niveau moyen"  value={suspectsData.filter(m=>m.niveau==='Moyen').length}  color={ORANGE} />
+          <StatCard icon="🟢" label="Niveau faible" value={suspectsData.filter(m=>m.niveau==='Faible').length} color={VERT}   />
+          <StatCard icon="📊" label="Total signalés" value={suspectsData.length}                               color="#555"   />
         </div>
 
         {/* Filtres */}
@@ -103,48 +163,59 @@ export default function MedicamentsSuspects() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((m, i) => {
-                const cfg = niveauConfig[m.niveau];
-                return (
-                  <tr key={m.id} style={styles.tr}>
-                    <td style={styles.td}>{i + 1}</td>
-                    <td style={{ ...styles.td, fontWeight: '600', color: '#222' }}>
-                      💊 {m.nom}
-                    </td>
-                    <td style={styles.td}>{m.pharmacie}</td>
-                    <td style={styles.td}>{m.scanneur}</td>
-                    <td style={styles.td}>{m.date}</td>
-                    <td style={styles.td}>
-                      <span style={{
-                        ...styles.niveauBadge,
-                        backgroundColor : cfg.bg,
-                        color           : cfg.color,
-                        border          : `1px solid ${cfg.color}`,
-                      }}>
-                        {cfg.icon} {m.niveau}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <div style={styles.actionsCell}>
-                        <button
-                          style={{ ...styles.actionBtn, backgroundColor: '#e8f4fd', color: '#3498db' }}
-                          onClick={() => setDetail(m)}
-                          title="Voir détails"
-                        >
-                          👁️
-                        </button>
-                        <button
-                          style={{ ...styles.actionBtn, backgroundColor: '#fde8e8', color: ROUGE }}
-                          onClick={() => setConfirm(m.id)}
-                          title="Supprimer"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan="7" style={styles.td}>
+                    <div style={styles.emptyContainer}>
+                      <p>🔍 Aucun médicament suspect trouvé</p>
+                      <p style={styles.emptySub}>Les nouveaux signalements apparaîtront ici</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((m, i) => {
+                  const cfg = niveauConfig[m.niveau];
+                  return (
+                    <tr key={m.id} style={styles.tr}>
+                      <td style={styles.td}>{i + 1}</td>
+                      <td style={{ ...styles.td, fontWeight: '600', color: '#222' }}>
+                        💊 {m.nom}
+                      </td>
+                      <td style={styles.td}>{m.pharmacie}</td>
+                      <td style={styles.td}>{m.scanneur}</td>
+                      <td style={styles.td}>{m.date}</td>
+                      <td style={styles.td}>
+                        <span style={{
+                          ...styles.niveauBadge,
+                          backgroundColor : cfg.bg,
+                          color           : cfg.color,
+                          border          : `1px solid ${cfg.color}`,
+                        }}>
+                          {cfg.icon} {m.niveau}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        <div style={styles.actionsCell}>
+                          <button
+                            style={{ ...styles.actionBtn, backgroundColor: '#e8f4fd', color: '#3498db' }}
+                            onClick={() => setDetail(m)}
+                            title="Voir détails"
+                          >
+                            👁️
+                          </button>
+                          <button
+                            style={{ ...styles.actionBtn, backgroundColor: '#fde8e8', color: ROUGE }}
+                            onClick={() => setConfirm(m.id)}
+                            title="Supprimer"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
           {filtered.length === 0 && (
@@ -254,4 +325,43 @@ const styles = {
   detailKey      : { fontWeight: '600', color: '#555', width: 100, fontSize: 13 },
   detailVal      : { fontSize: 13, color: '#333' },
   detailAlert    : { backgroundColor: '#fff3cd', color: '#856404', padding: '12px', borderRadius: 8, fontSize: 13, textAlign: 'left', marginBottom: 10 },
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    gap: 20,
+  },
+  retryBtn: {
+    padding: '10px 20px',
+    backgroundColor: VERT,
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontSize: 14,
+  },
+  emptyContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 200,
+    color: '#999',
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: 12,
+    color: '#bbb',
+    marginTop: 8,
+  },
 };

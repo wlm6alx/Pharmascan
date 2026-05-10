@@ -1,47 +1,119 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/sidebar';
+import { supabase } from '../supabase';
 
 const VERT  = '#4ecdc4';
 const ROUGE = '#e74c3c';
 
-const usersData = [
-  { id: 1,  nom: 'Amina Moussa',     email: 'amina@gmail.com',    role: 'Patient',    statut: true,  date: '12/01/2026' },
-  { id: 2,  nom: 'Dr Frank Tsafack', email: 'frank@pharma.cm',    role: 'Pharmacien', statut: true,  date: '05/01/2026' },
-  { id: 3,  nom: 'Alexander Biya',   email: 'alex@gmail.com',     role: 'Patient',    statut: false, date: '20/12/2025' },
-  { id: 4,  nom: 'Rosette Ngono',    email: 'rosette@gmail.com',  role: 'Patient',    statut: true,  date: '18/12/2025' },
-  { id: 5,  nom: 'Dr Armstrong',     email: 'arm@pharma.cm',      role: 'Pharmacien', statut: true,  date: '10/12/2025' },
-  { id: 6,  nom: 'Jean Mbarga',      email: 'jean@gmail.com',     role: 'Patient',    statut: false, date: '01/12/2025' },
-  { id: 7,  nom: 'Dr Emmanuel N.',   email: 'emmanuel@pharma.cm', role: 'Pharmacien', statut: true,  date: '25/11/2025' },
-  { id: 8,  nom: 'Marie Essomba',    email: 'marie@gmail.com',    role: 'Patient',    statut: true,  date: '15/11/2025' },
-];
-
 export default function Utilisateurs() {
-  const [search,  setSearch]  = useState('');
-  const [filtre,  setFiltre]  = useState('Tous');
-  const [liste,   setListe]   = useState(usersData);
-  const [confirm, setConfirm] = useState(null); // { id, action }
+  const [search, setSearch] = useState('');
+  const [filtre, setFiltre] = useState('Tous');
+  const [usersData, setUsersData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+
+  // Fonction pour récupérer les utilisateurs depuis Supabase
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, name, surname, email, role, userState, created_at')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setUsersData(data || []);
+    } catch (err) {
+      console.error('Erreur lors de la récupération des utilisateurs:', err);
+      setError('Impossible de charger les utilisateurs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   // Filtrage
-  const filtered = liste.filter(u => {
-    const matchSearch = u.nom.toLowerCase().includes(search.toLowerCase())
-      || u.email.toLowerCase().includes(search.toLowerCase());
+  const filtered = usersData.filter(u => {
+    const fullName = u.name && u.surname ? `${u.name} ${u.surname}` : u.name || '';
+    const matchSearch = fullName && u.email && (
+      fullName.toLowerCase().includes(search.toLowerCase()) ||
+      u.email.toLowerCase().includes(search.toLowerCase())
+    );
     const matchRole = filtre === 'Tous' || u.role === filtre;
     return matchSearch && matchRole;
   });
 
   // Bloquer / débloquer
-  const toggleStatut = (id) => {
-    setListe(liste.map(u =>
-      u.id === id ? { ...u, statut: !u.statut } : u
-    ));
-    setConfirm(null);
+  const toggleStatut = async (id) => {
+    try {
+      const user = usersData.find(u => u.id === id);
+      const { error } = await supabase
+        .from('users')
+        .update({ userState: !user.userState })
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      // Mettre à jour l'état local
+      setUsersData(usersData.map(u =>
+        u.id === id ? { ...u, userState: !u.userState } : u
+      ));
+      setConfirm(null);
+    } catch (err) {
+      console.error('Erreur lors de la mise à jour du statut:', err);
+    }
   };
 
   // Supprimer
-  const supprimer = (id) => {
-    setListe(liste.filter(u => u.id !== id));
-    setConfirm(null);
+  const supprimer = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      // Mettre à jour l'état local
+      setUsersData(usersData.filter(u => u.id !== id));
+      setConfirm(null);
+    } catch (err) {
+      console.error('Erreur lors de la suppression:', err);
+    }
   };
+
+  if (loading) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.loadingContainer}>
+            <p>Chargement des utilisateurs...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.errorContainer}>
+            <p>❌ {error}</p>
+            <button style={styles.retryBtn} onClick={fetchUsers}>
+              Réessayer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.page}>
@@ -68,15 +140,15 @@ export default function Utilisateurs() {
 
         {/* Statistiques rapides */}
         <div style={styles.statsRow}>
-          <StatPill label="Total"      value={liste.length}                                      color="#555"  />
-          <StatPill label="Patients"   value={liste.filter(u => u.role==='Patient').length}      color={VERT}  />
-          <StatPill label="Pharmaciens"value={liste.filter(u => u.role==='Pharmacien').length}   color="#3498db"/>
-          <StatPill label="Bloqués"    value={liste.filter(u => !u.statut).length}               color={ROUGE} />
+          <StatPill label="Total"      value={usersData.length}                                      color="#555"  />
+          <StatPill label="Patients"   value={usersData.filter(u => u.role==='patient').length}      color={VERT}  />
+          <StatPill label="Pharmaciens"value={usersData.filter(u => u.role==='pharmacien').length}   color="#3498db"/>
+          <StatPill label="Bloqués"    value={usersData.filter(u => !u.userState).length}               color={ROUGE} />
         </div>
 
         {/* Filtres par rôle */}
         <div style={styles.filtreRow}>
-          {['Tous', 'Patient', 'Pharmacien'].map(f => (
+          {['Tous', 'patient', 'pharmacien'].map(f => (
             <button
               key={f}
               style={{
@@ -112,30 +184,30 @@ export default function Utilisateurs() {
                   <td style={styles.td}>{i + 1}</td>
                   <td style={styles.td}>
                     <div style={styles.userCell}>
-                      <div style={styles.avatar}>{u.nom[0]}</div>
-                      {u.nom}
+                      <div style={styles.avatar}>{(u.name || '')[0]}</div>
+                      {u.name} {u.surname || ''}
                     </div>
                   </td>
                   <td style={styles.td}>{u.email}</td>
                   <td style={styles.td}>
                     <span style={{
                       ...styles.roleBadge,
-                      backgroundColor : u.role === 'Pharmacien' ? '#3498db22' : VERT + '22',
-                      color           : u.role === 'Pharmacien' ? '#3498db'   : VERT,
-                      border          : `1px solid ${u.role === 'Pharmacien' ? '#3498db' : VERT}`,
+                      backgroundColor : u.role === 'pharmacien' ? '#3498db22' : VERT + '22',
+                      color           : u.role === 'pharmacien' ? '#3498db'   : VERT,
+                      border          : `1px solid ${u.role === 'pharmacien' ? '#3498db' : VERT}`,
                     }}>
                       {u.role}
                     </span>
                   </td>
-                  <td style={styles.td}>{u.date}</td>
+                  <td style={styles.td}>{u.created_at ? new Date(u.created_at).toLocaleDateString('fr-FR') : ''}</td>
                   <td style={styles.td}>
                     <span style={{
                       ...styles.statutBadge,
-                      backgroundColor : u.statut ? '#2ecc7122' : ROUGE + '22',
-                      color           : u.statut ? '#2ecc71'   : ROUGE,
-                      border          : `1px solid ${u.statut ? '#2ecc71' : ROUGE}`,
+                      backgroundColor : u.userState ? '#2ecc7122' : ROUGE + '22',
+                      color           : u.userState ? '#2ecc71'   : ROUGE,
+                      border          : `1px solid ${u.userState ? '#2ecc71' : ROUGE}`,
                     }}>
-                      {u.statut ? 'Actif' : 'Bloqué'}
+                      {u.userState ? 'Actif' : 'Bloqué'}
                     </span>
                   </td>
                   <td style={styles.td}>
@@ -144,13 +216,13 @@ export default function Utilisateurs() {
                       <button
                         style={{
                           ...styles.actionBtn,
-                          backgroundColor: u.statut ? '#fff3cd' : '#d4edda',
-                          color          : u.statut ? '#856404' : '#155724',
+                          backgroundColor: u.userState ? '#fff3cd' : '#d4edda',
+                          color          : u.userState ? '#856404' : '#155724',
                         }}
-                        onClick={() => setConfirm({ id: u.id, action: u.statut ? 'bloquer' : 'debloquer' })}
-                        title={u.statut ? 'Bloquer' : 'Débloquer'}
+                        onClick={() => setConfirm({ id: u.id, action: u.userState ? 'bloquer' : 'debloquer' })}
+                        title={u.userState ? 'Bloquer' : 'Débloquer'}
                       >
-                        {u.statut ? '🔒' : '🔓'}
+                        {u.userState ? '🔒' : '🔓'}
                       </button>
 
                       {/* Supprimer */}
@@ -253,4 +325,29 @@ const styles = {
   modalBtns      : { display: 'flex', gap: 15, justifyContent: 'center' },
   modalConfirm   : { padding: '10px 30px', backgroundColor: ROUGE, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: '600', fontSize: 14 },
   modalCancel    : { padding: '10px 30px', backgroundColor: '#f0f0f0', color: '#444', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: '600', fontSize: 14 },
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    gap: 20,
+  },
+  retryBtn: {
+    padding: '10px 20px',
+    backgroundColor: VERT,
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontSize: 14,
+  },
 };

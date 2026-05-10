@@ -1,21 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/sidebar';
+import { supabase } from '../supabase';
 
 const VERT   = '#4ecdc4';
 const ROUGE  = '#e74c3c';
 const ORANGE = '#f0a500';
 const BLEU   = '#3498db';
-
-const notifData = [
-  { id: 1, type: 'alerte',    titre: 'Médicament suspect détecté',        message: 'Ibuprofène 400mg signalé à la Pharmacie Akwa.',          date: '16/03/2026 09:12', lu: false },
-  { id: 2, type: 'pharmacie', titre: 'Nouvelle inscription pharmacie',     message: 'Pharmacie Bali a soumis une demande d\'inscription.',     date: '16/03/2026 08:45', lu: false },
-  { id: 3, type: 'patient',   titre: 'Nouveau patient inscrit',            message: 'Un nouveau compte patient a été créé (#1285).',           date: '15/03/2026 17:30', lu: true  },
-  { id: 4, type: 'alerte',    titre: 'Médicament suspect détecté',         message: 'Amoxicilline 250mg signalé à la Pharmacie Soleil.',       date: '15/03/2026 14:20', lu: true  },
-  { id: 5, type: 'pharmacie', titre: 'Pharmacie validée',                  message: 'Pharmacie Bonanjo a été validée avec succès.',            date: '14/03/2026 11:05', lu: true  },
-  { id: 6, type: 'systeme',   titre: 'Mise à jour système',                message: 'PharmaScan a été mis à jour vers la version 1.2.0.',      date: '13/03/2026 09:00', lu: true  },
-  { id: 7, type: 'patient',   titre: 'Compte patient bloqué',              message: 'Le compte de Alexander B. a été suspendu.',               date: '12/03/2026 16:45', lu: true  },
-  { id: 8, type: 'pharmacie', titre: 'Demande d\'inscription en attente',  message: 'Pharmacie Logpom attend une validation depuis 3 jours.',  date: '11/03/2026 10:30', lu: true  },
-];
 
 const typeConfig = {
   alerte    : { color: ROUGE,  bg: ROUGE  + '15', icon: '⚠️',  label: 'Alerte'    },
@@ -25,38 +15,130 @@ const typeConfig = {
 };
 
 export default function Notifications() {
-  const [liste,   setListe]   = useState(notifData);
-  const [filtre,  setFiltre]  = useState('Tous');
-  const [search,  setSearch]  = useState('');
+  const [notificationsData, setNotificationsData] = useState([]);
+  const [filtre, setFiltre] = useState('Tous');
+  const [search, setSearch] = useState('');
   const [confirm, setConfirm] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Fonction pour récupérer les notifications depuis Supabase
+  const fetchNotifications = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setNotificationsData(data || []);
+    } catch (err) {
+      console.error('Erreur lors de la récupération des notifications:', err);
+      setError('Impossible de charger les notifications');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
 
   // Marquer comme lu
-  const marquerLu = (id) => {
-    setListe(liste.map(n => n.id === id ? { ...n, lu: true } : n));
+  const marquerLu = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ lu: true })
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      // Mettre à jour l'état local
+      setNotificationsData(notificationsData.map(n => n.id === id ? { ...n, lu: true } : n));
+    } catch (err) {
+      console.error('Erreur lors du marquage comme lu:', err);
+    }
   };
 
   // Marquer tout comme lu
-  const marquerToutLu = () => {
-    setListe(liste.map(n => ({ ...n, lu: true })));
+  const marquerToutLu = async () => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ lu: true })
+        .eq('lu', false);
+      
+      if (error) throw error;
+      
+      // Mettre à jour l'état local
+      setNotificationsData(notificationsData.map(n => ({ ...n, lu: true })));
+    } catch (err) {
+      console.error('Erreur lors du marquage tout comme lu:', err);
+    }
   };
 
   // Supprimer
-  const supprimer = (id) => {
-    setListe(liste.filter(n => n.id !== id));
-    setConfirm(null);
+  const supprimer = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      // Mettre à jour l'état local
+      setNotificationsData(notificationsData.filter(n => n.id !== id));
+      setConfirm(null);
+    } catch (err) {
+      console.error('Erreur lors de la suppression:', err);
+    }
   };
 
+  if (loading) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.loadingContainer}>
+            <p>Chargement des notifications...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.errorContainer}>
+            <p>❌ {error}</p>
+            <button style={styles.retryBtn} onClick={fetchNotifications}>
+              Réessayer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Filtrage
-  const filtered = liste.filter(n => {
+  const filtered = notificationsData.filter(n => {
     const matchFiltre = filtre === 'Tous'
       || (filtre === 'Non lues' && !n.lu)
       || n.type === filtre.toLowerCase();
-    const matchSearch = n.titre.toLowerCase().includes(search.toLowerCase())
-      || n.message.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = n.titre && n.message && (
+      n.titre.toLowerCase().includes(search.toLowerCase())
+      || n.message.toLowerCase().includes(search.toLowerCase())
+    );
     return matchFiltre && matchSearch;
   });
 
-  const nonLues = liste.filter(n => !n.lu).length;
+  const nonLues = notificationsData.filter(n => !n.lu).length;
 
   return (
     <div style={styles.page}>
@@ -94,11 +176,11 @@ export default function Notifications() {
 
         {/* Stats rapides */}
         <div style={styles.statsRow}>
-          <MiniStat label="Total"     value={liste.length}  color="#555"  />
+          <MiniStat label="Total"     value={notificationsData.length}  color="#555"  />
           <MiniStat label="Non lues"  value={nonLues}       color={ROUGE} />
-          <MiniStat label="Alertes"   value={liste.filter(n=>n.type==='alerte').length}    color={ROUGE}  />
-          <MiniStat label="Pharmacie" value={liste.filter(n=>n.type==='pharmacie').length} color={VERT}   />
-          <MiniStat label="Patients"  value={liste.filter(n=>n.type==='patient').length}   color={BLEU}   />
+          <MiniStat label="Alertes"   value={notificationsData.filter(n=>n.type==='alerte').length}    color={ROUGE}  />
+          <MiniStat label="Pharmacie" value={notificationsData.filter(n=>n.type==='pharmacie').length} color={VERT}   />
+          <MiniStat label="Patients"  value={notificationsData.filter(n=>n.type==='patient').length}   color={BLEU}   />
         </div>
 
         {/* Filtres */}
@@ -121,73 +203,76 @@ export default function Notifications() {
 
         {/* Liste des notifications */}
         <div style={styles.listContainer}>
-          {filtered.length === 0 && (
-            <p style={styles.empty}>Aucune notification trouvée.</p>
-          )}
-
-          {filtered.map(n => {
-            const cfg = typeConfig[n.type];
-            return (
-              <div
-                key={n.id}
-                style={{
-                  ...styles.notifCard,
-                  backgroundColor : n.lu ? '#fff' : '#f0fbfa',
-                  borderLeft      : `4px solid ${n.lu ? '#ddd' : cfg.color}`,
-                }}
-                onClick={() => marquerLu(n.id)}
-              >
-                {/* Icône type */}
-                <div style={{ ...styles.notifIcon, backgroundColor: cfg.bg }}>
-                  <span style={{ fontSize: 22 }}>{cfg.icon}</span>
-                </div>
-
-                {/* Contenu */}
-                <div style={styles.notifBody}>
-                  <div style={styles.notifTop}>
-                    <span style={{
-                      ...styles.typeBadge,
-                      backgroundColor : cfg.bg,
-                      color           : cfg.color,
-                      border          : `1px solid ${cfg.color}`,
-                    }}>
-                      {cfg.label}
-                    </span>
-                    {!n.lu && <span style={styles.newBadge}>Nouveau</span>}
-                    <span style={styles.notifDate}>{n.date}</span>
+          {filtered.length === 0 ? (
+            <div style={styles.emptyContainer}>
+              <p>🔔 Aucune notification trouvée</p>
+              <p style={styles.emptySub}>Les nouvelles notifications apparaîtront ici</p>
+            </div>
+          ) : (
+            filtered.map(n => {
+              const cfg = typeConfig[n.type];
+              return (
+                <div
+                  key={n.id}
+                  style={{
+                    ...styles.notifCard,
+                    backgroundColor : n.lu ? '#fff' : '#f0fbfa',
+                    borderLeft      : `4px solid ${n.lu ? '#ddd' : cfg.color}`,
+                  }}
+                  onClick={() => marquerLu(n.id)}
+                >
+                  {/* Icône type */}
+                  <div style={{ ...styles.notifIcon, backgroundColor: cfg.bg }}>
+                    <span style={{ fontSize: 22 }}>{cfg.icon}</span>
                   </div>
-                  <p style={{
-                    ...styles.notifTitre,
-                    fontWeight: n.lu ? '500' : '700',
-                  }}>
-                    {n.titre}
-                  </p>
-                  <p style={styles.notifMessage}>{n.message}</p>
-                </div>
 
-                {/* Actions */}
-                <div style={styles.notifActions}>
-                  {!n.lu && (
+                  {/* Contenu */}
+                  <div style={styles.notifBody}>
+                    <div style={styles.notifTop}>
+                      <span style={{
+                        ...styles.typeBadge,
+                        backgroundColor : cfg.bg,
+                        color           : cfg.color,
+                        border          : `1px solid ${cfg.color}`,
+                      }}>
+                        {cfg.label}
+                      </span>
+                      {!n.lu && <span style={styles.newBadge}>Nouveau</span>}
+                      <span style={styles.notifDate}>{n.date || new Date(n.created_at).toLocaleDateString('fr-FR')}</span>
+                    </div>
+                    <p style={{
+                      ...styles.notifTitre,
+                      fontWeight: n.lu ? '500' : '700',
+                    }}>
+                      {n.titre || 'Notification'}
+                    </p>
+                    <p style={styles.notifMessage}>{n.message || 'Aucun message'}</p>
+                  </div>
+
+                  {/* Actions */}
+                  <div style={styles.notifActions}>
+                    {!n.lu && (
+                      <button
+                        style={styles.luBtn}
+                        onClick={e => { e.stopPropagation(); marquerLu(n.id); }}
+                        title="Marquer comme lu"
+                      >
+                        ✅
+                      </button>
+                    )}
                     <button
-                      style={styles.luBtn}
-                      onClick={e => { e.stopPropagation(); marquerLu(n.id); }}
-                      title="Marquer comme lu"
+                      style={styles.suppBtn}
+                      onClick={e => { e.stopPropagation(); setConfirm(n.id); }}
+                      title="Supprimer"
                     >
-                      ✅
+                      🗑️
                     </button>
-                  )}
-                  <button
-                    style={styles.suppBtn}
-                    onClick={e => { e.stopPropagation(); setConfirm(n.id); }}
-                    title="Supprimer"
-                  >
-                    🗑️
-                  </button>
-                </div>
+                  </div>
 
-              </div>
-            );
-          })}
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* Modal confirmation */}
@@ -265,4 +350,43 @@ const styles = {
   modalBtns      : { display: 'flex', gap: 15, justifyContent: 'center' },
   modalConfirm   : { padding: '10px 30px', backgroundColor: ROUGE, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: '600' },
   modalCancel    : { padding: '10px 30px', backgroundColor: '#f0f0f0', color: '#444', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: '600' },
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    gap: 20,
+  },
+  retryBtn: {
+    padding: '10px 20px',
+    backgroundColor: VERT,
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontSize: 14,
+  },
+  emptyContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 200,
+    color: '#999',
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: 12,
+    color: '#bbb',
+    marginTop: 8,
+  },
 };

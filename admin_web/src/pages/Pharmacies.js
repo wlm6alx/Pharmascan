@@ -1,26 +1,72 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/sidebar';
+import { supabase } from '../supabase';
 
 const VERT = '#4ecdc4';
-
-// Données factices
-const pharmaciesData = [
-  { id: 1, nom: 'Pharmacie de New-Bell',   statut: 'Ouverte', gerant: 'M. EDWARD Thierry',  contact: '+237 694837262' },
-  { id: 2, nom: 'Pharmacie NSIMEYONG',     statut: 'Fermée',  gerant: 'M. TANGY Délor',     contact: '+237 656387297' },
-  { id: 3, nom: 'Pharmacie de YASSA',      statut: 'Ouverte', gerant: 'M. BARYUN Ingris',   contact: '+237 690784537' },
-  { id: 4, nom: 'Pharmacie NDOKOTI',       statut: 'Fermée',  gerant: 'Mme DJUBOUTSI H.',   contact: '+237 648230185' },
-  { id: 5, nom: 'Pharmacie Bonanjo',       statut: 'Ouverte', gerant: 'M. YUISSIN Espert',  contact: '+237 627183749' },
-  { id: 6, nom: 'Pharmacie Akwa Centre',   statut: 'Ouverte', gerant: 'M. ZANGUY Kerneu',   contact: '+237 683766755' },
-];
 
 export default function Pharmacies() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
+  const [pharmaciesData, setPharmaciesData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Fonction pour récupérer les pharmacies depuis Supabase
+  const fetchPharmacies = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('pharmacies')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setPharmaciesData(data || []);
+    } catch (err) {
+      console.error('Erreur lors de la récupération des pharmacies:', err);
+      setError('Impossible de charger les pharmacies');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPharmacies();
+  }, []);
 
   const filtered = pharmaciesData.filter(p =>
-    p.nom.toLowerCase().includes(search.toLowerCase())
+    p.nom && p.nom.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (loading) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.loadingContainer}>
+            <p>Chargement des pharmacies...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={styles.page}>
+        <Sidebar />
+        <div style={styles.content}>
+          <div style={styles.errorContainer}>
+            <p>❌ {error}</p>
+            <button style={styles.retryBtn} onClick={fetchPharmacies}>
+              Réessayer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.page}>
@@ -110,4 +156,29 @@ const styles = {
   cardInfo: { backgroundColor: '#fff', padding: '10px 14px' },
   cardName: { fontSize: 13, fontWeight: '600', color: '#333', margin: 0, marginBottom: 3 },
   cardStatut: { fontSize: 12, margin: 0, fontWeight: '500' },
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '50vh',
+    gap: 20,
+  },
+  retryBtn: {
+    padding: '10px 20px',
+    backgroundColor: VERT,
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontSize: 14,
+  },
 };
