@@ -34,7 +34,8 @@ class PharmacyService {
       final data = await _supabase
           .from('pharmacie')
           .select('*')
-          .eq('validate', 'true'); // 👈 uniquement les pharmacies validées
+          .eq('validate', true) // 👈 boolean true, pas String 'true'
+          .eq('exist', true); // 👈 pharmacie doit exister
 
       return (data as List).map((e) => Pharmacie.fromSupabase(e)).where((p) {
         try {

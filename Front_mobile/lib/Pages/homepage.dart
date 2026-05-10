@@ -343,7 +343,9 @@ class _HomeState extends State<Home> {
                   const Icon(Icons.phone, color: Colors.grey, size: 18),
                   const SizedBox(width: 8),
                   Text(
-                    pharmacie.phone_number!,
+                    // 👇 Affiche indicatif + numéro si disponibles
+                    '${pharmacie.indicphone ?? ''} ${pharmacie.phone_number ?? ''}'
+                        .trim(),
                     style: const TextStyle(color: Colors.grey),
                   ),
                 ],
