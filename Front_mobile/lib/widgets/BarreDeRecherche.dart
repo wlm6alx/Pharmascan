@@ -34,7 +34,7 @@ class BarreDeRecherche extends StatelessWidget {
               controller: controller,
               onChanged: onChanged,
               decoration: const InputDecoration(
-                hintText: "Recherche de pharmacie ou de médicaments",
+                hintText: "Rechercher un medicament",
                 border: InputBorder.none,
                 icon: Icon(Icons.search),
               ),
