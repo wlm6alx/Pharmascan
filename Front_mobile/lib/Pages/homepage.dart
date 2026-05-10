@@ -526,16 +526,12 @@ class _HomeState extends State<Home> {
               initialCenter: _currentPosition!,
               initialZoom: 15.0,
               keepAlive: true,
-              minZoom: 9,
+              minZoom: 1,
               onTap: (_, __) {
                 setState(() => _resultatsRecherche = []);
               },
-              interactionOptions: InteractionOptions(
-                flags:
-                    ~InteractiveFlag.doubleTapZoom &
-                    InteractiveFlag.flingAnimation,
-                cursorKeyboardRotationOptions:
-                    CursorKeyboardRotationOptions.disabled(),
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all,
               ),
             ),
             children: [
@@ -597,10 +593,10 @@ class _HomeState extends State<Home> {
                               ),
                             ],
                           ),
-                          child: SvgPicture.asset(
-                            'asset/pharmacie1.svg',
-                            width: 24,
-                            height: 24,
+                          child: Icon(
+                            Icons.local_pharmacy,
+                            color: Colors.green,
+                            size: 24,
                           ),
                         ),
                       ),
@@ -621,10 +617,10 @@ class _HomeState extends State<Home> {
                           height: 40,
                           child: GestureDetector(
                             onTap: () => _afficherDetailPharmacie(pharmacie),
-                            child: SvgPicture.asset(
-                              'asset/pharmacie1.svg',
-                              width: 24,
-                              height: 24,
+                            child: Icon(
+                              Icons.local_pharmacy,
+                              color: Colors.green,
+                              size: 24,
                             ),
                           ),
                         ),
@@ -636,10 +632,10 @@ class _HomeState extends State<Home> {
                       point: _destinationChoisie!.position,
                       width: 40,
                       height: 40,
-                      child: SvgPicture.asset(
-                        'asset/pharmacie1.svg',
-                        width: 24,
-                        height: 24,
+                      child: Icon(
+                        Icons.local_pharmacy,
+                        color: Colors.green,
+                        size: 24,
                       ),
                     ),
                 ],

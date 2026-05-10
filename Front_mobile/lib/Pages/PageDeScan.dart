@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:pharmascan/Pages/ScanScreen.dart';
 import 'package:pharmascan/modele/modeleMedocs.dart';
-import 'package:pharmascan/services/Medocservice.dart';
+import 'package:pharmascan/services/MedocService.dart';
 import 'package:pharmascan/widgets/BarreDeRecherche.dart';
 
 class PageDeScan extends StatefulWidget {
@@ -17,6 +17,7 @@ class _PageDeScanState extends State<PageDeScan>
   List<Medoc> _historique = [];
   List<Medoc> _resultats = [];
   bool _chargement = true;
+  bool _scanEnCours = false;
   String? _erreur;
 
   late AnimationController _animController;
@@ -70,19 +71,7 @@ class _PageDeScanState extends State<PageDeScan>
 
   void _rechercher(String valeur) {
     setState(() {
-      if (valeur.isEmpty) {
-        _resultats = _historique;
-      } else {
-        _resultats = _historique.where((medoc) {
-          final nomMatch = medoc.nom.toLowerCase().contains(
-                valeur.toLowerCase(),
-              );
-          final dosageMatch = medoc.dosage.toLowerCase().contains(
-                valeur.toLowerCase(),
-              );
-          return nomMatch || dosageMatch;
-        }).toList();
-      }
+      _resultats = _filtrerHistorique(valeur);
     });
   }
 
@@ -97,8 +86,8 @@ class _PageDeScanState extends State<PageDeScan>
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           child: ScanScreen(
             onDetect: (barcodeCapture) {
-              Navigator.of(modalContext).pop();
               _traiterScan(barcodeCapture);
+              Navigator.of(modalContext).pop();
             },
           ),
         ),
@@ -106,7 +95,7 @@ class _PageDeScanState extends State<PageDeScan>
     );
   }
 
-  void _traiterScan(BarcodeCapture barcodeCapture) {
+  Future<void> _traiterScan(BarcodeCapture barcodeCapture) async {
     final Barcode? premierBarcode = barcodeCapture.barcodes.isNotEmpty
         ? barcodeCapture.barcodes.first
         : null;
@@ -123,11 +112,92 @@ class _PageDeScanState extends State<PageDeScan>
       return;
     }
 
+    setState(() => _scanEnCours = true);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Code detecte : $code')),
+      const SnackBar(content: Text('Verification du medicament...')),
     );
 
-    // Ajoute ici la logique de verification d'authenticite du medicament.
+    try {
+      final verification = await Medocservice.verifierCodeBarre(code);
+      final medocScanne = Medoc.fromVerification(verification);
+
+      if (!mounted) return;
+
+      setState(() {
+        _historique = [medocScanne, ..._historique].take(6).toList();
+        _resultats = _filtrerHistorique(_searchController.text);
+        _scanEnCours = false;
+      });
+
+      _afficherResultatScan(verification);
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() => _scanEnCours = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Impossible de verifier ce medicament maintenant.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  List<Medoc> _filtrerHistorique(String valeur) {
+    if (valeur.isEmpty) return _historique;
+
+    return _historique.where((medoc) {
+      final recherche = valeur.toLowerCase();
+      final nomMatch = medoc.nom.toLowerCase().contains(recherche);
+      final dosageMatch = medoc.dosage.toLowerCase().contains(recherche);
+      final codeMatch = medoc.code_barre?.toLowerCase().contains(recherche) ??
+          false;
+      return nomMatch || dosageMatch || codeMatch;
+    }).toList();
+  }
+
+  void _afficherResultatScan(VerificationMedicament verification) {
+    final Color couleur = verification.correct
+        ? const Color(0xFF1193AB)
+        : Colors.red;
+    final IconData icon = verification.correct
+        ? Icons.verified
+        : Icons.warning_amber_rounded;
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: Icon(icon, color: couleur, size: 44),
+        title: Text(
+          verification.description,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: couleur, fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Code-barres : ${verification.code_barre}'),
+            if (verification.nom != null) ...[
+              const SizedBox(height: 8),
+              Text('Nom : ${verification.nom}'),
+            ],
+            if (verification.dosage != null &&
+                verification.dosage!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Dosage : ${verification.dosage}'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -156,7 +226,6 @@ class _PageDeScanState extends State<PageDeScan>
                 BarreDeRecherche(
                   controller: _searchController,
                   onChanged: _rechercher,
-                  onBack: () => Navigator.pop(context),
                 ),
                 const SizedBox(height: 16),
                 const Text(
@@ -181,11 +250,21 @@ class _PageDeScanState extends State<PageDeScan>
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 100),
         child: FloatingActionButton(
-          onPressed: _ouvrirScanner,
+          onPressed: _scanEnCours ? null : _ouvrirScanner,
+          tooltip: _scanEnCours ? 'Verification en cours' : 'Scanner',
           backgroundColor: const Color(0xFF1193AB),
           elevation: 6,
           shape: const CircleBorder(),
-          child: const Icon(Icons.add, color: Colors.white, size: 30),
+          child: _scanEnCours
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2.4,
+                  ),
+                )
+              : const Icon(Icons.add, color: Colors.white, size: 30),
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
