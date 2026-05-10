@@ -66,6 +66,14 @@ class _SearchPageState extends State<SearchPage> {
         _pharmacies = resultats;
         _isLoading = false;
       });
+    } on MedicineSearchException catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _pharmacies = [];
+        _isLoading = false;
+        _errorMessage = e.message;
+      });
     } catch (_) {
       if (!mounted) return;
 

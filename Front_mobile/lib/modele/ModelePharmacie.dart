@@ -1,22 +1,22 @@
 import 'package:latlong2/latlong.dart';
 
 class Pharmacie {
-  final String? id;
-  final String nom;
-  final String adresse;
+  final String? pharmacie_id;
+  final String name;
+  final String adress;
   final LatLng position;
-  final String? telephone;
+  final String? phone_number;
   final bool source;
   final List<String> medicaments;
   final String? medicamentTrouve;
   final int? stockDisponible;
 
   Pharmacie({
-    this.id,
-    required this.nom,
-    required this.adresse,
+    this.pharmacie_id,
+    required this.name,
+    required this.adress,
     required this.position,
-    this.telephone,
+    this.phone_number,
     required this.source,
     this.medicaments = const [],
     this.medicamentTrouve,
@@ -25,14 +25,14 @@ class Pharmacie {
 
   factory Pharmacie.fromJson(Map<String, dynamic> json) {
     return Pharmacie(
-      id: json['id']?.toString(),
-      nom: json['nom'],
-      adresse: json['adresse'] ?? '',
+      pharmacie_id: json['id']?.toString(),
+      name: json['nom'],
+      adress: json['adresse'] ?? '',
       position: LatLng(
         double.parse(json['latitude'].toString()),
         double.parse(json['longitude'].toString()),
       ),
-      telephone: json['telephone'],
+      phone_number: json['telephone'],
       source: true,
       medicaments: List<String>.from(json['medicaments'] ?? []),
     );
@@ -40,8 +40,8 @@ class Pharmacie {
 
   factory Pharmacie.fromNominatim(Map<String, dynamic> json) {
     return Pharmacie(
-      nom: json['display_name'].toString().split(',').first,
-      adresse: json['display_name'],
+      name: json['display_name'].toString().split(',').first,
+      adress: json['adresse'] ?? '',
       position: LatLng(double.parse(json['lat']), double.parse(json['lon'])),
       source: false,
     );
@@ -49,20 +49,27 @@ class Pharmacie {
 
   factory Pharmacie.fromSupabaseStock(Map<String, dynamic> json) {
     final nomPharmacie =
-        json['pharmacie_nom'] ?? json['nom_pharmacie'] ?? json['nom'];
+        json['pharmacie_nom'] ??
+        json['nom_pharmacie'] ??
+        json['name'] ??
+        json['nom'];
     final nomMedicament =
-        json['medicament_nom'] ?? json['nom_medicament'] ?? json['medicament'];
+        json['medicament_nom'] ??
+        json['nom_medicament'] ??
+        json['medicament'] ??
+        json['nom'];
 
     return Pharmacie(
-      id: (json['pharmacie_id'] ?? json['id_pharmacie'] ?? json['id'])
+      pharmacie_id: (json['pharmacie_id'] ?? json['id_pharmacie'] ?? json['id'])
           ?.toString(),
-      nom: nomPharmacie?.toString() ?? '',
-      adresse: json['adresse']?.toString() ?? '',
+      name: nomPharmacie?.toString() ?? '',
+      adress: (json['adresse'] ?? json['adress'])?.toString() ?? '',
       position: LatLng(
         double.parse(json['latitude'].toString()),
         double.parse(json['longitude'].toString()),
       ),
-      telephone: json['telephone']?.toString(),
+      phone_number: (json['telephone'] ?? json['phone_number'] ?? json['phone'])
+          ?.toString(),
       source: true,
       medicamentTrouve: nomMedicament?.toString(),
       stockDisponible: int.tryParse(

@@ -481,11 +481,11 @@ class _HomeState extends State<Home> {
                                 : Colors.orange,
                           ),
                           title: Text(
-                            pharmacie.nom,
+                            pharmacie.name,
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           subtitle: Text(
-                            pharmacie.adresse,
+                            pharmacie.adress,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -572,7 +572,7 @@ class _HomeState extends State<Home> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _destinationChoisie?.nom ?? '',
+                            _destinationChoisie?.name ?? '',
                             style: const TextStyle(fontWeight: FontWeight.bold),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

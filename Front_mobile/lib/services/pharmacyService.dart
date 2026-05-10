@@ -26,8 +26,8 @@ class PharmacyService {
       final resultats = pharmacies
           .where(
             (p) =>
-                p.nom.toLowerCase().contains(query.toLowerCase()) ||
-                p.adresse.toLowerCase().contains(query.toLowerCase()),
+                p.name.toLowerCase().contains(query.toLowerCase()) ||
+                p.adress.toLowerCase().contains(query.toLowerCase()),
           )
           .toList();
 
@@ -93,7 +93,7 @@ class PharmacyService {
     final tous = [...local];
     for (final p in nominatim) {
       final doublon = tous.any(
-        (existing) => existing.nom.toLowerCase() == p.nom.toLowerCase(),
+        (existing) => existing.name.toLowerCase() == p.name.toLowerCase(),
       );
       if (!doublon) tous.add(p);
     }
