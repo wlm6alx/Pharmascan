@@ -53,31 +53,61 @@ class AuthService {
     }
   }
 
-  // Récupérer le profil utilisateur depuis la table users
+  // Récupérer le profil utilisateur depuis le JWT (pas de requête users)
   async fetchUserProfile(userId) {
     try {
-      console.log('👤 Récupération du profil utilisateur...');
+      console.log('👤 Récupération du profil utilisateur depuis JWT...');
+      console.log('🔍 UserID:', userId);
       
-      const { data: profile, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        console.error('❌ Erreur profil:', error.message);
+      // Récupérer la session et les métadonnées
+      console.log('🔍 Récupération de la session...');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        console.error('❌ Erreur session:', sessionError);
         return null;
       }
-
-      console.log('✅ Profil utilisateur:', profile);
+      
+      if (!session) {
+        console.log('❌ Pas de session');
+        return null;
+      }
+      
+      console.log('✅ Session trouvée:', session);
+      const user = session.user;
+      console.log('🔍 User dans session:', user);
+      console.log('🔍 App metadata:', user?.app_metadata);
+      console.log('🔍 User metadata:', user?.user_metadata);
+      
+      const role = user?.app_metadata?.role || user?.user_metadata?.role;
+      console.log('🔍 Rôle extrait:', role);
+      
+      // Créer un profil virtuel depuis le JWT
+      const profile = {
+        id: user.id,
+        email: user.email,
+        role: role || 'user',
+        userState: true, // Par défaut actif
+        created_at: user.created_at,
+        // Ajouter les autres champs si disponibles dans les métadonnées
+        ...(user.app_metadata || {}),
+        ...(user.user_metadata || {})
+      };
+      
+      console.log('✅ Profil depuis JWT:', profile);
+      console.log('🔍 Rôle dans profil:', profile?.role);
       
       this.user = { ...profile, authUser: profile };
       this.isAuthenticated = true;
       this.notifyListeners(this.user);
       
+      console.log('✅ User défini dans authService:', this.user);
+      console.log('✅ isAdmin() après fetch:', await this.isAdmin());
+      
       return profile;
     } catch (err) {
       console.error('❌ Erreur fetchUserProfile:', err);
+      console.error('❌ Stack trace:', err.stack);
       return null;
     }
   }
@@ -107,9 +137,39 @@ class AuthService {
     }
   }
 
-  // Vérifier si l'utilisateur est admin
-  isAdmin() {
-    return this.user && this.user.role === 'admin';
+  // Vérifier si l'utilisateur est admin (uniquement depuis le JWT)
+  async isAdmin() {
+    const role = await this.getRoleFromJWT();
+    console.log('🔍 Rôle depuis JWT:', role);
+    const isAdmin = role === 'admin';
+    console.log('🔍 Est admin?', isAdmin);
+    return isAdmin;
+  }
+
+  // Récupérer le rôle depuis le JWT (app_metadata)
+  async getRoleFromJWT() {
+    try {
+      // Récupérer la session actuelle
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.log('❌ Pas de session active');
+        return null;
+      }
+      
+      const user = session.user;
+      // Priorité à app_metadata (plus sécurisé)
+      const role = user?.app_metadata?.role || user?.user_metadata?.role;
+      
+      console.log('🔍 Session user:', user);
+      console.log('🔍 App metadata:', user?.app_metadata);
+      console.log('🔍 User metadata:', user?.user_metadata);
+      console.log('🔍 Rôle trouvé:', role);
+      
+      return role;
+    } catch (error) {
+      console.error('❌ Erreur lecture JWT:', error);
+      return null;
+    }
   }
 
   // Vérifier si l'utilisateur est connecté
@@ -160,7 +220,7 @@ class AuthService {
     try {
       console.log('👨‍💼 Création admin user...');
       
-      // 1. Créer l'utilisateur dans Supabase Auth
+      // 1. Créer l'utilisateur dans Supabase Auth avec rôle admin dans les métadonnées
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -168,8 +228,10 @@ class AuthService {
           data: {
             name,
             surname,
-            username: username || email.split('@')[0]
-          }
+            username: username || email.split('@')[0],
+            role: 'admin'  // Rôle pour le trigger handle_new_user()
+          },
+          email_confirm: true  // Auto-confirmation (nécessite service role)
         }
       });
 
@@ -180,28 +242,11 @@ class AuthService {
 
       console.log('✅ Utilisateur auth créé:', authData);
 
-      // 2. Créer le profil dans la table users avec rôle admin
-      const { data: profileData, error: profileError } = await supabase
-        .from('users')
-        .insert([{
-          id: authData.user.id,
-          username: username || email.split('@')[0],
-          name,
-          surname,
-          email,
-          role: 'admin',
-          userState: true,
-          created_at: new Date().toISOString()
-        }])
-        .select();
-
-      if (profileError) {
-        console.error('❌ Erreur création profil:', profileError);
-        return { success: false, error: profileError.message };
-      }
-
-      console.log('✅ Profil admin créé:', profileData);
-      return { success: true, data: profileData[0] };
+      // 2. Le trigger handle_new_user() crée automatiquement le profil dans public.users
+      // Plus besoin de création manuelle - le trigger gère tout !
+      console.log('✅ Profil admin créé automatiquement par le trigger');
+      
+      return { success: true, data: authData.user };
 
     } catch (err) {
       console.error('❌ Erreur création admin:', err);

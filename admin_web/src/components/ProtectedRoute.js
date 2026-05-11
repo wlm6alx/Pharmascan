@@ -4,28 +4,44 @@ import authService from '../services/auth';
 
 export default function ProtectedRoute({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(null);
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    // Écouter les changements d'authentification
-    const unsubscribe = authService.onAuthStateChange((currentUser) => {
-      console.log('🔄 ProtectedRoute - Changement état auth:', currentUser);
-      setIsAuthenticated(!!currentUser);
-      setUser(currentUser);
-    });
+    const checkAuth = async () => {
+      // Écouter les changements d'authentification
+      const unsubscribe = authService.onAuthStateChange(async (currentUser) => {
+        console.log('🔄 ProtectedRoute - Changement état auth:', currentUser);
+        setIsAuthenticated(!!currentUser);
+        setUser(currentUser);
+        
+        if (currentUser) {
+          // Vérifier si l'utilisateur est admin
+          const adminStatus = await authService.isAdmin();
+          setIsAdmin(adminStatus);
+        } else {
+          setIsAdmin(false);
+        }
+      });
 
-    // Vérifier l'état initial
-    if (authService.isLoggedIn()) {
-      setIsAuthenticated(true);
-      setUser(authService.getCurrentUser());
-    } else {
-      setIsAuthenticated(false);
-    }
+      // Vérifier l'état initial
+      if (authService.isLoggedIn()) {
+        setIsAuthenticated(true);
+        setUser(authService.getCurrentUser());
+        const adminStatus = await authService.isAdmin();
+        setIsAdmin(adminStatus);
+      } else {
+        setIsAuthenticated(false);
+        setIsAdmin(false);
+      }
 
-    return unsubscribe;
+      return unsubscribe;
+    };
+
+    checkAuth();
   }, []);
 
-  if (isAuthenticated === null) {
+  if (isAuthenticated === null || isAdmin === null) {
     // État de chargement
     return (
       <div style={{
@@ -41,8 +57,13 @@ export default function ProtectedRoute({ children }) {
     );
   }
 
-  if (!isAuthenticated || !authService.isAdmin()) {
-    console.log('❌ Accès refusé - Redirection vers login');
+  if (!isAuthenticated) {
+    console.log('❌ Non authentifié - Redirection vers login');
+    return <Navigate to="/" replace />;
+  }
+
+  if (!isAdmin) {
+    console.log('❌ Pas admin - Redirection vers login');
     return <Navigate to="/" replace />;
   }
 

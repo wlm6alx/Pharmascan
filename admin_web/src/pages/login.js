@@ -38,7 +38,8 @@ export default function Login() {
         console.log(' Connexion réussie');
         
         // Vérifier si l'utilisateur est admin
-        if (authService.isAdmin()) {
+        const isAdminUser = await authService.isAdmin();
+        if (isAdminUser) {
           navigate('/dashboard');
         } else {
           setError('Accès réservé aux administrateurs');
@@ -119,7 +120,12 @@ export default function Login() {
 
         <p style={styles.registerText}>
           vous n'avez pas de compte ?{' '}
-          <span style={styles.registerLink}>créez un nouveau compte</span>
+          <span 
+            style={styles.registerLink}
+            onClick={() => navigate('/register')}
+          >
+            créez un nouveau compte
+          </span>
         </p>
 
       </div>
