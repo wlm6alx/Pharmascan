@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { resolvePharmacyForPharmacist, getOperationalStatus } from '../lib/pharmacyHelpers'
-import { Clock, Building2, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import {
+  ensurePharmacistRow,
+  resolvePharmacyForPharmacist,
+  getOperationalStatus,
+  PHARMACY_PROFILE_UPDATED_EVENT,
+} from '../lib/pharmacyHelpers'
+import { NOTICE_NEED_PHARMACY } from '../components/SimpleNoticeModal'
+import { pharmacyValidationKey, T_PHARMACIE } from '../lib/pharmacySchema'
+import { Clock, Building2, CheckCircle, XCircle } from 'lucide-react'
 
 export default function Status() {
   const { user } = useAuth()
@@ -14,15 +22,19 @@ export default function Status() {
     fetchPharmacy()
   }, [user])
 
+  useEffect(() => {
+    const refresh = () => {
+      if (user?.id) fetchPharmacy()
+    }
+    window.addEventListener(PHARMACY_PROFILE_UPDATED_EVENT, refresh)
+    return () => window.removeEventListener(PHARMACY_PROFILE_UPDATED_EVENT, refresh)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
   const fetchPharmacy = async () => {
     try {
       if (!user?.id) return
-      const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('*, pharmacies(*)')
-        .eq('user_id', user.id)
-        .single()
-
+      const pharmacist = await ensurePharmacistRow(supabase, user)
       const pharm = await resolvePharmacyForPharmacist(supabase, pharmacist)
       if (pharm) setPharmacy(pharm)
     } catch (error) {
@@ -32,38 +44,21 @@ export default function Status() {
     }
   }
 
-  const updateStatus = async (status) => {
-    if (!pharmacy) return
+  const validationLabel = pharmacy ? pharmacyValidationKey(pharmacy) : null
+
+  const updateOpenClose = async (open) => {
+    if (!pharmacy?.pharmacie_id) return
 
     setUpdating(true)
     try {
       const { error } = await supabase
-        .from('pharmacies')
-        .update({ operational_status: status })
-        .eq('id', pharmacy.id)
+        .from(T_PHARMACIE)
+        .update({ status: open ? 'open' : 'close' })
+        .eq('pharmacie_id', pharmacy.pharmacie_id)
 
       if (error) throw error
       await fetchPharmacy()
       alert('Statut mis à jour avec succès')
-    } catch (error) {
-      alert('Erreur lors de la mise à jour: ' + error.message)
-    } finally {
-      setUpdating(false)
-    }
-  }
-
-  const toggleOnDuty = async () => {
-    if (!pharmacy) return
-
-    setUpdating(true)
-    try {
-      const { error } = await supabase
-        .from('pharmacies')
-        .update({ is_on_duty: !pharmacy.is_on_duty })
-        .eq('id', pharmacy.id)
-
-      if (error) throw error
-      await fetchPharmacy()
     } catch (error) {
       alert('Erreur lors de la mise à jour: ' + error.message)
     } finally {
@@ -77,15 +72,15 @@ export default function Status() {
 
   if (!pharmacy) {
     return (
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-        <div className="flex items-center space-x-3">
-          <AlertCircle className="h-5 w-5 text-yellow-600" />
-          <div>
-            <p className="text-yellow-800 font-medium">Aucune pharmacie associée</p>
-            <p className="text-yellow-700 text-sm mt-1">
-              Veuillez créer votre pharmacie dans la section "Ma Pharmacie"
-            </p>
-          </div>
+      <div className="rounded-xl border border-amber-100 bg-amber-50 p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-medium leading-snug text-amber-900">{NOTICE_NEED_PHARMACY}</p>
+          <Link
+            to="/pharmacy"
+            className="inline-flex shrink-0 items-center justify-center rounded-lg bg-[#0b8fac] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0a7085]"
+          >
+            Ma Pharmacie
+          </Link>
         </div>
       </div>
     )
@@ -96,110 +91,77 @@ export default function Status() {
       <h1 className="text-3xl font-bold text-gray-900 mb-8">Statut de la pharmacie</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Statut de validation */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900 flex items-center">
               <Building2 className="h-5 w-5 mr-2" />
               Statut de validation
             </h2>
-            {pharmacy.status === 'approved' ? (
+            {validationLabel === 'approuvee' ? (
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
                 <CheckCircle className="h-4 w-4 mr-1" />
                 Validée
               </span>
-            ) : pharmacy.status === 'pending' ? (
+            ) : (
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
                 <Clock className="h-4 w-4 mr-1" />
                 En attente
-              </span>
-            ) : (
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">
-                <XCircle className="h-4 w-4 mr-1" />
-                Rejetée
               </span>
             )}
           </div>
 
           <p className="text-gray-600 text-sm mb-4">
-            {pharmacy.status === 'approved'
-              ? 'Votre pharmacie a été validée par l\'administrateur. Vous pouvez maintenant gérer vos médicaments.'
-              : pharmacy.status === 'pending'
-              ? 'Votre demande de création de pharmacie est en attente de validation par l\'administrateur.'
-              : 'Votre pharmacie a été rejetée. Veuillez contacter l\'administrateur pour plus d\'informations.'}
+            {validationLabel === 'approuvee'
+              ? "Votre pharmacie a été validée par l'administrateur. Vous pouvez indiquer si l'officine est ouverte ou fermée."
+              : "Votre demande est en attente de validation par l'administrateur. L'ouverture / fermeture n'est disponible qu'après validation."}
           </p>
 
-          {pharmacy.status === 'approved' && (
+          {validationLabel === 'approuvee' && (
             <div className="mt-4 p-4 bg-green-50 rounded-lg">
               <p className="text-sm text-green-800">
                 <strong>Pharmacie:</strong> {pharmacy.name}
               </p>
               <p className="text-sm text-green-700 mt-1">
-                <strong>Adresse:</strong> {pharmacy.address}
+                <strong>Adresse:</strong> {pharmacy.adress}
               </p>
             </div>
           )}
         </div>
 
-        {/* Pharmacie de garde */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900 flex items-center">
               <Clock className="h-5 w-5 mr-2" />
-              Pharmacie de garde
+              Coordonnées enregistrées
             </h2>
-            <span
-              className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                pharmacy.is_on_duty
-                  ? 'bg-blue-100 text-blue-800'
-                  : 'bg-gray-100 text-gray-800'
-              }`}
-            >
-              {pharmacy.is_on_duty ? 'De garde' : 'Non de garde'}
-            </span>
           </div>
-
-          <p className="text-gray-600 text-sm mb-4">
-            Activez le statut "de garde" lorsque votre pharmacie est ouverte en dehors des heures normales.
-            Les utilisateurs pourront vous trouver plus facilement.
+          <p className="text-gray-600 text-sm mb-2">
+            Latitude : {pharmacy.latitude ?? '—'}, longitude : {pharmacy.longitude ?? '—'}
           </p>
-
-          <button
-            onClick={toggleOnDuty}
-            disabled={updating || pharmacy.status !== 'approved'}
-            className={`w-full px-4 py-3 rounded-lg font-medium transition ${
-              pharmacy.is_on_duty
-                ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
-            {updating
-              ? 'Mise à jour...'
-              : pharmacy.is_on_duty
-              ? 'Désactiver la garde'
-              : 'Activer la garde'}
-          </button>
+          <p className="text-xs text-gray-500">
+            Les coordonnées proviennent de la géolocalisation au moment de l&apos;inscription ou d&apos;une mise à jour depuis la fiche pharmacie.
+          </p>
         </div>
       </div>
 
-      {/* Statut d'ouverture */}
       <div className="mt-6 bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Statut d'ouverture</h2>
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">Statut d&apos;ouverture</h2>
         <p className="text-gray-600 text-sm mb-4">
-          Mettez à jour le statut d'ouverture de votre pharmacie pour informer les clients en temps réel.
+          Schéma base : <code className="text-xs bg-gray-100 px-1 rounded">pharmacie.status</code> vaut{' '}
+          <strong>open</strong> ou <strong>close</strong>.
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 max-w-xl">
           {(() => {
             const op = getOperationalStatus(pharmacy)
             return (
               <>
                 <button
                   type="button"
-                  onClick={() => updateStatus('open')}
-                  disabled={updating || pharmacy.status !== 'approved'}
+                  onClick={() => updateOpenClose(true)}
+                  disabled={updating || validationLabel !== 'approuvee'}
                   className={`px-4 py-4 sm:px-6 rounded-lg border-2 font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                    op === 'open'
+                    op === 'ouvert'
                       ? 'border-green-600 bg-green-100 text-green-900 ring-2 ring-green-500/30'
                       : 'border-green-500 bg-green-50 text-green-700 hover:bg-green-100'
                   }`}
@@ -210,30 +172,16 @@ export default function Status() {
 
                 <button
                   type="button"
-                  onClick={() => updateStatus('closed')}
-                  disabled={updating || pharmacy.status !== 'approved'}
+                  onClick={() => updateOpenClose(false)}
+                  disabled={updating || validationLabel !== 'approuvee'}
                   className={`px-4 py-4 sm:px-6 rounded-lg border-2 font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                    op === 'closed'
+                    op === 'ferme'
                       ? 'border-red-600 bg-red-100 text-red-900 ring-2 ring-red-500/30'
                       : 'border-red-500 bg-red-50 text-red-700 hover:bg-red-100'
                   }`}
                 >
                   <XCircle className="h-6 w-6 mx-auto mb-2" />
                   <div>Fermée</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => updateStatus('busy')}
-                  disabled={updating || pharmacy.status !== 'approved'}
-                  className={`px-4 py-4 sm:px-6 rounded-lg border-2 font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                    op === 'busy'
-                      ? 'border-amber-500 bg-amber-100 text-amber-900 ring-2 ring-amber-500/30'
-                      : 'border-yellow-500 bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
-                  }`}
-                >
-                  <AlertCircle className="h-6 w-6 mx-auto mb-2" />
-                  <div>Occupée</div>
                 </button>
               </>
             )
@@ -243,4 +191,3 @@ export default function Status() {
     </div>
   )
 }
-

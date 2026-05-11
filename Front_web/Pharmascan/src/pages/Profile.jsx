@@ -1,8 +1,29 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { X, Edit, Save, Building2, User, Phone, MapPin, FileText, Mail, Upload, Camera, Image, Eye, EyeOff, Lock } from 'lucide-react'
-import { getFormattedCountries, getAllCitiesByCountry } from '../lib/locationData'
+import {
+  X,
+  Edit,
+  Save,
+  Building2,
+  User,
+  Phone,
+  MapPin,
+  FileText,
+  Mail,
+  Upload,
+  Camera,
+  Image,
+  Eye,
+  EyeOff,
+  Lock,
+  ExternalLink,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+} from 'lucide-react'
+import { getFormattedCountries, getAllCitiesByCountry, getCountryName } from '../lib/locationData'
+import { getBrowserGeolocation, splitPhoneForPharmacie, T_PHARMACIE, T_PHARMACIEN } from '../lib/pharmacySchema'
 import { getPhoneCode } from '../lib/phoneCodes'
 import {
   ensurePharmacistRow,
@@ -10,13 +31,41 @@ import {
   resolvePharmacyForPharmacist,
   resolveOrCreatePharmacy,
 } from '../lib/pharmacyHelpers'
-import { phoneNumberWithoutCode, parseLegacyAddressLine } from '../lib/profileAddress'
+import { parseLegacyAddressLine } from '../lib/profileAddress'
+
+const COORD_NEAR_ZERO = 1e-5
+
+function pharmacyCoordsUsable(lat, lng) {
+  const la = Number(lat)
+  const lo = Number(lng)
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) return false
+  if (Math.abs(la) < COORD_NEAR_ZERO && Math.abs(lo) < COORD_NEAR_ZERO) return false
+  return true
+}
+
+/** Lien unique (lat + lon) vers la carte OpenStreetMap. */
+function pharmacyMapExternalUrl(lat, lng) {
+  const la = Number(lat)
+  const lo = Number(lng)
+  return `https://www.openstreetmap.org/?mlat=${la}&mlon=${lo}#map=16/${la}/${lo}`
+}
+
+function pharmacyMapEmbedUrl(lat, lng) {
+  const la = Number(lat)
+  const lo = Number(lng)
+  const d = 0.015
+  const bbox = `${lo - d},${la - d},${lo + d},${la + d}`
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${la}%2C${lo}`
+}
 
 export default function Profile() {
   const { user } = useAuth()
   const [pharmacy, setPharmacy] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  /** Notification après enregistrement / erreur (remplace alert natif) */
+  const [notice, setNotice] = useState(null)
   const [formData, setFormData] = useState({
     email: '',
     pharmacyName: '',
@@ -30,15 +79,20 @@ export default function Profile() {
     reference: '',
     attestationFile: null,
     photoFile: null,
+    justifPharmacienFile: null,
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
+    latitude: 0,
+    longitude: 0,
   })
   const [attestationUrl, setAttestationUrl] = useState(null)
   const [photoUrl, setPhotoUrl] = useState(null)
+  const [justifPharmacienUrl, setJustifPharmacienUrl] = useState(null)
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [geoLoading, setGeoLoading] = useState(false)
   const [passwordStrength, setPasswordStrength] = useState({
     length: false,
     uppercase: false,
@@ -52,6 +106,16 @@ export default function Profile() {
   useEffect(() => {
     fetchPharmacy()
   }, [user])
+
+  useEffect(() => {
+    if (!notice) return
+    const t = setTimeout(() => setNotice(null), 6500)
+    return () => clearTimeout(t)
+  }, [notice])
+
+  const showNotice = (variant, title, message) => {
+    setNotice({ variant, title, message })
+  }
 
   useEffect(() => {
     if (formData.country) {
@@ -84,6 +148,9 @@ export default function Profile() {
 
         if (!pharmacist) {
           setPharmacy(null)
+          setAttestationUrl(null)
+          setPhotoUrl(null)
+          setJustifPharmacienUrl(null)
           setFormData((prev) => ({
             ...prev,
             email: user?.email || '',
@@ -92,41 +159,67 @@ export default function Profile() {
         }
 
         const pharm = await resolvePharmacyForPharmacist(supabase, pharmacist)
-        const ownerFromPharmacist = [pharmacist.first_name, pharmacist.last_name]
-          .filter(Boolean)
-          .join(' ')
-          .trim()
+        const ownerMeta = (
+          user?.user_metadata?.owner_name ||
+          user?.user_metadata?.name ||
+          ''
+        ).trim()
 
         if (pharm) {
           setPharmacy(pharm)
-          const legacy = parseLegacyAddressLine(pharm.address)
-          const country = pharm.country || 'CM'
-          const pc = getPhoneCode(country).code
+          const legacy = parseLegacyAddressLine(pharm.adress)
+          const countryMatch = countries.find((c) => c.name === pharm.pays)
+          const country = countryMatch?.code || 'CM'
+          const pc = pharm.indicphone || getPhoneCode(country).code
           setFormData({
             email: user?.email || '',
             pharmacyName: pharm.name || '',
-            ownerName: pharm.owner_name || ownerFromPharmacist || '',
-            licenseNumber: pharm.license_number || '',
+            ownerName: ownerMeta,
+            licenseNumber: pharm.agrementnumber || '',
             country,
             phoneCode: pc,
-            phoneNumber: phoneNumberWithoutCode(pharm.phone, pc) || '',
-            city: pharm.city || legacy.city,
-            street: pharm.street || legacy.street,
-            reference: pharm.address_reference || legacy.reference,
+            phoneNumber: String(pharm.phone_number ?? ''),
+            city: pharm.ville || legacy.city,
+            street: pharm.quartier || legacy.street,
+            reference: legacy.reference,
             attestationFile: null,
             photoFile: null,
+            justifPharmacienFile: null,
             currentPassword: '',
             newPassword: '',
             confirmPassword: '',
+            latitude: pharm.latitude ?? 0,
+            longitude: pharm.longitude ?? 0,
           })
-          setAttestationUrl(pharm.attestation_url || null)
-          setPhotoUrl(pharm.photo_url || null)
+
+          if (pharm.attestationPath) {
+            const { data } = await supabase.storage
+              .from('pharmacy-documents')
+              .createSignedUrl(pharm.attestationPath, 60 * 10)
+            setAttestationUrl(data?.signedUrl || null)
+          } else {
+            setAttestationUrl(null)
+          }
+
+          setPhotoUrl(pharm.profile_path || null)
+
+          if (pharmacist?.justifPath) {
+            const { data } = await supabase.storage
+              .from('pharmacy-documents')
+              .createSignedUrl(pharmacist.justifPath, 60 * 10)
+            setJustifPharmacienUrl(data?.signedUrl || null)
+          } else {
+            setJustifPharmacienUrl(null)
+          }
         } else {
           setPharmacy(null)
+          setAttestationUrl(null)
+          setPhotoUrl(null)
+          setJustifPharmacienUrl(null)
           setFormData((prev) => ({
             ...prev,
             email: user?.email || '',
-            ownerName: ownerFromPharmacist || prev.ownerName,
+            ownerName: ownerMeta || prev.ownerName,
           }))
         }
     } catch (error) {
@@ -174,6 +267,16 @@ export default function Profile() {
     }
   }
 
+  const applyGeolocation = async () => {
+    setGeoLoading(true)
+    try {
+      const { latitude, longitude } = await getBrowserGeolocation()
+      setFormData((prev) => ({ ...prev, latitude, longitude }))
+    } finally {
+      setGeoLoading(false)
+    }
+  }
+
   const buildAddress = () => {
     const parts = []
     if (formData.city) parts.push(formData.city)
@@ -184,126 +287,220 @@ export default function Profile() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    try {
-      // Vérifier si un nouveau mot de passe est fourni
-      if (formData.newPassword || formData.confirmPassword || formData.currentPassword) {
-        if (!formData.currentPassword) {
-          alert('Veuillez entrer votre mot de passe actuel')
-          return
-        }
-        if (!formData.newPassword) {
-          alert('Veuillez entrer un nouveau mot de passe')
-          return
-        }
-        if (formData.newPassword !== formData.confirmPassword) {
-          alert('Les nouveaux mots de passe ne correspondent pas')
-          return
-        }
-        if (!passwordStrength.length || !passwordStrength.uppercase || !passwordStrength.lowercase || !passwordStrength.number || !passwordStrength.special) {
-          alert('Le nouveau mot de passe doit être fort (min 8 caractères, majuscule, minuscule, chiffre, caractère spécial)')
-          return
-        }
+    if (!user?.id) {
+      showNotice('error', 'Session expirée', 'Reconnectez-vous pour modifier votre profil.')
+      return
+    }
+    const pwdNew = (formData.newPassword || '').trim()
+    const pwdCur = (formData.currentPassword || '').trim()
+    const pwdConf = (formData.confirmPassword || '').trim()
 
+    if (pwdNew.length > 0) {
+      if (!pwdCur) {
+        showNotice(
+          'error',
+          'Mot de passe incomplet',
+          'Pour définir un nouveau mot de passe, renseignez d’abord le mot de passe actuel.'
+        )
+        return
+      }
+      if (pwdNew !== pwdConf) {
+        showNotice('error', 'Mots de passe différents', 'Le nouveau mot de passe et sa confirmation ne correspondent pas.')
+        return
+      }
+      if (
+        !passwordStrength.length ||
+        !passwordStrength.uppercase ||
+        !passwordStrength.lowercase ||
+        !passwordStrength.number ||
+        !passwordStrength.special
+      ) {
+        showNotice(
+          'error',
+          'Mot de passe trop faible',
+          'Utilisez au moins 8 caractères avec une majuscule, une minuscule, un chiffre et un caractère spécial.'
+        )
+        return
+      }
+    }
+
+    setSaving(true)
+    try {
+      if (pwdNew.length > 0) {
         const { error: updateError } = await supabase.auth.updateUser({
-          password: formData.newPassword
+          password: pwdNew,
         })
         if (updateError) throw updateError
       }
 
       let attestationUrlToSave = attestationUrl
       let photoUrlToSave = photoUrl
+      let attestationPathToSave = null
+      let justifPharmacienPathToSave = null
+      let justifPharmacienUrlToSave = justifPharmacienUrl
 
-      // Upload des fichiers si présents
       if (formData.attestationFile) {
         const { data: attestationData, error: attestationError } = await supabase.storage
           .from('pharmacy-documents')
-          .upload(`${user.id}/attestation-${Date.now()}`, formData.attestationFile)
-        
-        if (!attestationError && attestationData?.path) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('pharmacy-documents')
-            .getPublicUrl(attestationData.path)
-          attestationUrlToSave = publicUrl
+          .upload(`${user.id}/attestation-pharmacie-${Date.now()}`, formData.attestationFile, {
+            upsert: true,
+            contentType: formData.attestationFile.type || undefined,
+          })
+
+        if (attestationError) {
+          throw new Error(
+            `Envoi de l’attestation refusé : ${attestationError.message}. Vérifiez le bucket « pharmacy-documents » et les politiques Storage (insert pour les chemins ${user.id}/…).`
+          )
         }
+        if (!attestationData?.path) {
+          throw new Error('Envoi de l’attestation : aucun chemin retourné par le stockage.')
+        }
+        attestationPathToSave = attestationData.path
+        const { data: signedAttest } = await supabase.storage
+          .from('pharmacy-documents')
+          .createSignedUrl(attestationData.path, 60 * 10)
+        attestationUrlToSave = signedAttest?.signedUrl || attestationUrlToSave
+      }
+
+      if (formData.justifPharmacienFile) {
+        const { data: jData, error: jErr } = await supabase.storage
+          .from('pharmacy-documents')
+          .upload(`${user.id}/justif-pharmacien-${Date.now()}`, formData.justifPharmacienFile, {
+            upsert: true,
+            contentType: formData.justifPharmacienFile.type || undefined,
+          })
+        if (jErr) {
+          throw new Error(
+            `Envoi du justificatif pharmacien refusé : ${jErr.message}. Vérifiez les politiques Storage sur « pharmacy-documents ».`
+          )
+        }
+        if (!jData?.path) {
+          throw new Error('Envoi du justificatif : aucun chemin retourné.')
+        }
+        justifPharmacienPathToSave = jData.path
+        const { data: signedJustif } = await supabase.storage
+          .from('pharmacy-documents')
+          .createSignedUrl(jData.path, 60 * 10)
+        justifPharmacienUrlToSave = signedJustif?.signedUrl || justifPharmacienUrlToSave
       }
 
       if (formData.photoFile) {
         const { data: photoData, error: photoError } = await supabase.storage
           .from('pharmacy-photos')
-          .upload(`${user.id}/photo-${Date.now()}`, formData.photoFile)
-        
-        if (!photoError && photoData?.path) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('pharmacy-photos')
-            .getPublicUrl(photoData.path)
-          photoUrlToSave = publicUrl
-        }
-      }
+          .upload(`${user.id}/photo-${Date.now()}`, formData.photoFile, {
+            upsert: true,
+            contentType: formData.photoFile.type || undefined,
+          })
 
-      if (!user?.id) {
-        alert('Session expirée. Reconnectez-vous.')
-        return
+        if (photoError) {
+          throw new Error(
+            `Envoi de la photo refusé : ${photoError.message}. Vérifiez le bucket « pharmacy-photos » (public ou RLS lecture) et les politiques Storage.`
+          )
+        }
+        if (!photoData?.path) {
+          throw new Error('Envoi de la photo : aucun chemin retourné.')
+        }
+        const { data: pub } = supabase.storage.from('pharmacy-photos').getPublicUrl(photoData.path)
+        photoUrlToSave = pub?.publicUrl || photoUrlToSave
       }
 
       const pharmacist = await ensurePharmacistRow(supabase, user)
 
       if (!pharmacist) {
-        alert(
-          'Impossible de créer ou charger votre fiche pharmacien. Vérifiez votre connexion.'
+        throw new Error(
+          'Impossible de créer ou charger votre fiche pharmacien. Vérifiez votre connexion et les droits RLS.'
         )
-        return
       }
 
       const address = buildAddress()
-      const phoneFull = `${formData.phoneCode} ${formData.phoneNumber}`.trim()
+      const phone = splitPhoneForPharmacie(formData.phoneCode, formData.phoneNumber)
+      const paysLabel = getCountryName(formData.country) || formData.country || '—'
+      const quartier =
+        [formData.street, formData.reference].filter(Boolean).join(' — ') || '—'
 
       let row = await resolvePharmacyForPharmacist(supabase, pharmacist)
 
+      const lat = Number(formData.latitude) || 0
+      const lng = Number(formData.longitude) || 0
+
       const updateData = {
         name: formData.pharmacyName,
-        address: address || '—',
-        phone: phoneFull,
-        owner_name: formData.ownerName,
-        license_number: formData.licenseNumber,
-        country: formData.country,
-        phone_code: formData.phoneCode,
-        city: formData.city,
-        street: formData.street,
-        address_reference: formData.reference,
+        adress: address || '—',
+        pays: paysLabel,
+        ville: formData.city || '—',
+        quartier,
+        agrementnumber: formData.licenseNumber,
+        indicphone: phone.indicphone,
+        phone_number: phone.phone_number.toString(),
+        latitude: lat,
+        longitude: lng,
+        localisation: 0,
       }
-      if (attestationUrlToSave) updateData.attestation_url = attestationUrlToSave
-      if (photoUrlToSave) updateData.photo_url = photoUrlToSave
+      if (attestationPathToSave) {
+        updateData.attestationPath = attestationPathToSave
+        updateData.justifPath = attestationPathToSave
+      }
+      if (photoUrlToSave) updateData.profile_path = photoUrlToSave
 
       if (!row) {
-        row = await resolveOrCreatePharmacy(supabase, pharmacist, updateData)
+        row = await resolveOrCreatePharmacy(supabase, pharmacist, {
+          ...updateData,
+          attestationPath: updateData.attestationPath || 'pending',
+          justifPath: updateData.justifPath || updateData.attestationPath || 'pending',
+          profile_path: photoUrlToSave ?? null,
+        })
       } else {
         const { error } = await supabase
-          .from('pharmacies')
+          .from(T_PHARMACIE)
           .update(updateData)
-          .eq('id', row.id)
+          .eq('pharmacie_id', row.pharmacie_id)
 
         if (error) throw error
       }
 
-      if (!row?.id) {
-        alert('Impossible d’enregistrer la pharmacie. Réessayez ou contactez le support.')
-        return
+      if (justifPharmacienPathToSave) {
+        const { error: jUp } = await supabase
+          .from(T_PHARMACIEN)
+          .update({ justifPath: justifPharmacienPathToSave })
+          .eq('user_id', user.id)
+        if (jUp) throw jUp
       }
 
-      // Réinitialiser les champs de mot de passe
-      setFormData(prev => ({
+      if (!row?.pharmacie_id) {
+        throw new Error('Impossible d’enregistrer la pharmacie. Réessayez ou contactez le support.')
+      }
+
+      setJustifPharmacienUrl(justifPharmacienUrlToSave)
+
+      // Réinitialiser mot de passe + fichiers (évite un second envoi du même fichier)
+      setFormData((prev) => ({
         ...prev,
         currentPassword: '',
         newPassword: '',
         confirmPassword: '',
+        attestationFile: null,
+        photoFile: null,
+        justifPharmacienFile: null,
       }))
 
       await fetchPharmacy()
       window.dispatchEvent(new Event(PHARMACY_PROFILE_UPDATED_EVENT))
       setShowModal(false)
-      alert('Profil mis à jour avec succès')
+      showNotice(
+        'success',
+        pwdNew.length > 0 ? 'Tout est à jour' : 'Profil enregistré',
+        pwdNew.length > 0
+          ? 'Vos informations et votre nouveau mot de passe ont été enregistrés.'
+          : 'Les modifications de votre pharmacie ont bien été sauvegardées.'
+      )
     } catch (error) {
-      alert('Erreur lors de la mise à jour: ' + error.message)
+      showNotice(
+        'error',
+        'Enregistrement impossible',
+        error?.message || 'Une erreur est survenue. Réessayez dans un instant.'
+      )
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -317,6 +514,7 @@ export default function Profile() {
   }
 
   return (
+    <>
     <div className="p-4 sm:p-6 lg:p-8 bg-gray-50 min-h-screen w-full flex flex-col items-center">
       {/* En-tête */}
       <div className="mb-8 text-center w-full">
@@ -390,9 +588,11 @@ export default function Profile() {
               <label className="text-sm font-semibold text-gray-700">Téléphone</label>
             </div>
             <p className="text-gray-900 font-medium">
-              {formData.phoneCode && formData.phoneNumber 
-                ? `${formData.phoneCode} ${formData.phoneNumber}` 
-                : pharmacy?.phone || '-'}
+              {formData.phoneCode && formData.phoneNumber
+                ? `${formData.phoneCode} ${formData.phoneNumber}`
+                : pharmacy
+                  ? `${pharmacy.indicphone || ''} ${pharmacy.phone_number ?? ''}`.trim() || '-'
+                  : '-'}
             </p>
           </div>
 
@@ -402,8 +602,40 @@ export default function Profile() {
               <label className="text-sm font-semibold text-gray-700">Adresse</label>
             </div>
             <p className="text-gray-900 font-medium">
-              {[formData.city, formData.street, formData.reference].filter(Boolean).join(' - ') || pharmacy?.address || '-'}
+              {[formData.city, formData.street, formData.reference].filter(Boolean).join(' - ') ||
+                pharmacy?.adress ||
+                '-'}
             </p>
+          </div>
+
+          <div className="bg-gray-50 rounded-xl p-5 border-2 border-gray-200 md:col-span-2">
+            <div className="flex items-center gap-3 mb-2">
+              <MapPin className="h-5 w-5 text-[#0b8fac]" />
+              <label className="text-sm font-semibold text-gray-700">Localisation GPS</label>
+            </div>
+            {(() => {
+              const lat = pharmacy?.latitude ?? formData.latitude
+              const lng = pharmacy?.longitude ?? formData.longitude
+              if (!pharmacyCoordsUsable(lat, lng)) {
+                return (
+                  <p className="text-gray-600 text-sm">
+                    Aucune position enregistrée. Définissez-la depuis « Modifier le profil ».
+                  </p>
+                )
+              }
+              const href = pharmacyMapExternalUrl(lat, lng)
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-[#0b8fac] font-semibold text-sm hover:underline"
+                >
+                  <ExternalLink className="h-4 w-4 shrink-0" />
+                  Voir sur la carte
+                </a>
+              )
+            })()}
           </div>
         </div>
 
@@ -423,6 +655,19 @@ export default function Profile() {
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-3xl w-full mx-4 relative shadow-2xl max-h-[90vh] overflow-y-auto border-2 border-gray-100 animate-slide-up">
+            {saving && (
+              <div
+                className="absolute inset-0 z-20 bg-white/80 backdrop-blur-[2px] rounded-2xl flex flex-col items-center justify-center gap-4"
+                aria-busy="true"
+                aria-live="polite"
+              >
+                <Loader2 className="h-12 w-12 text-[#0b8fac] animate-spin" strokeWidth={2.5} />
+                <p className="text-base font-semibold text-gray-800">Enregistrement en cours…</p>
+                <p className="text-sm text-gray-500 text-center max-w-xs px-4">
+                  Envoi des fichiers et mise à jour de votre pharmacie. Merci de patienter.
+                </p>
+              </div>
+            )}
             {/* En-tête */}
             <div className="flex items-center justify-between mb-8 pb-6 border-b-2 border-gray-100">
               <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
@@ -590,16 +835,65 @@ export default function Profile() {
               {/* Référence / Point de repère */}
               <div className="bg-gray-50 rounded-xl p-5 border-2 border-gray-200">
                 <label className="block text-sm font-semibold text-gray-700 mb-2.5">
-                  Référence / Point de repère
+                  Référence / Point de repère{' '}
+                  <span className="font-normal text-gray-500">(facultatif)</span>
                 </label>
                 <input
                   type="text"
                   name="reference"
                   value={formData.reference}
                   onChange={handleChange}
-                  required
+                  placeholder="Optionnel (point de repère, repère proche…)"
                   className="w-full px-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0b8fac] focus:border-[#0b8fac] transition-all shadow-sm hover:shadow-md"
                 />
+              </div>
+
+              {/* Localisation (carte — pas d’affichage brut lat/lon) */}
+              <div className="bg-gray-50 rounded-xl p-5 border-2 border-gray-200">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <MapPin className="h-5 w-5 text-[#0b8fac]" />
+                  <span className="text-sm font-semibold text-gray-700">Localisation (carte)</span>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">
+                  Position enregistrée avec votre pharmacie. Utilisez le bouton pour la mettre à jour depuis cet
+                  appareil, vérifiez sur la carte puis enregistrez le profil.
+                </p>
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                  <button
+                    type="button"
+                    onClick={applyGeolocation}
+                    disabled={geoLoading}
+                    className="px-4 py-3 bg-[#0b8fac] text-white rounded-xl text-sm font-semibold hover:bg-[#0a7085] disabled:opacity-50 transition-all shadow-sm"
+                  >
+                    {geoLoading ? 'Localisation…' : 'Utiliser ma position'}
+                  </button>
+                  {pharmacyCoordsUsable(formData.latitude, formData.longitude) && (
+                    <a
+                      href={pharmacyMapExternalUrl(formData.latitude, formData.longitude)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-3 bg-white border-2 border-[#0b8fac] text-[#0b8fac] rounded-xl text-sm font-semibold hover:bg-gray-50 transition-all"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      Ouvrir sur la carte
+                    </a>
+                  )}
+                </div>
+                {pharmacyCoordsUsable(formData.latitude, formData.longitude) ? (
+                  <div className="rounded-xl overflow-hidden border-2 border-gray-200 bg-gray-100 h-56 w-full">
+                    <iframe
+                      title="Aperçu de la position sur la carte"
+                      className="w-full h-full border-0"
+                      src={pharmacyMapEmbedUrl(formData.latitude, formData.longitude)}
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">
+                    La carte s’affichera après une première position (bouton ci-dessus).
+                  </p>
+                )}
               </div>
 
               {/* Photo de la pharmacie */}
@@ -678,24 +972,74 @@ export default function Profile() {
                 )}
               </div>
 
+              {/* Justificatif pharmacien */}
+              <div className="bg-gray-50 rounded-xl p-5 border-2 border-gray-200">
+                <label className="block text-sm font-semibold text-gray-700 mb-2.5">
+                  Justificatif du pharmacien (fichier distinct de l&apos;attestation officine)
+                </label>
+                <div className="flex gap-3 mb-3">
+                  <input
+                    type="text"
+                    readOnly
+                    value={
+                      formData.justifPharmacienFile
+                        ? formData.justifPharmacienFile.name
+                        : justifPharmacienUrl
+                          ? 'Document actuel'
+                          : ''
+                    }
+                    placeholder="Aucun fichier sélectionné"
+                    className="flex-1 px-4 py-3.5 bg-white border-2 border-gray-200 rounded-xl"
+                  />
+                  <label className="px-6 py-3.5 bg-[#0b8fac] text-white rounded-xl cursor-pointer hover:bg-[#0a7085] transition-all duration-200 shadow-md hover:shadow-lg border-2 border-[#0b8fac] hover:border-[#0a7085] flex items-center gap-2">
+                    <Upload className="h-5 w-5" />
+                    <span>Importer</span>
+                    <input
+                      type="file"
+                      name="justifPharmacienFile"
+                      onChange={handleChange}
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                {justifPharmacienUrl && !formData.justifPharmacienFile && (
+                  <div className="mt-3">
+                    <a
+                      href={justifPharmacienUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                    >
+                      <FileText className="h-5 w-5" />
+                      <span>Voir le justificatif actuel</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+
               {/* Section changement de mot de passe */}
               <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-6 border-2 border-gray-200">
-                <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center gap-3 mb-2">
                   <Lock className="h-5 w-5 text-[#0b8fac]" />
                   <h3 className="text-lg font-bold text-gray-900">Changer le mot de passe</h3>
                 </div>
-                
+                <p className="text-sm text-gray-600 mb-4">
+                  Facultatif : laissez ces champs vides si vous ne souhaitez modifier que les autres informations.
+                </p>
+
                 <div className="space-y-4">
                   {/* Mot de passe actuel */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2.5">
                       Mot de passe actuel
+                      <span className="font-normal text-gray-500"> (si nouveau mot de passe)</span>
                     </label>
                     <div className="relative">
                       <input
                         type={showCurrentPassword ? 'text' : 'password'}
                         name="currentPassword"
-                        autoComplete="current-password"
+                        autoComplete="off"
                         value={formData.currentPassword}
                         onChange={handleChange}
                         placeholder="Entrez votre mot de passe actuel"
@@ -715,6 +1059,7 @@ export default function Profile() {
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2.5">
                       Nouveau mot de passe
+                      <span className="font-normal text-gray-500"> (optionnel)</span>
                     </label>
                     <div className="relative">
                       <input
@@ -770,6 +1115,7 @@ export default function Profile() {
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2.5">
                       Confirmer le nouveau mot de passe
+                      <span className="font-normal text-gray-500"> (optionnel)</span>
                     </label>
                     <div className="relative">
                       <input
@@ -810,22 +1156,71 @@ export default function Profile() {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 px-6 py-3.5 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-200 shadow-md hover:shadow-lg border-2 border-gray-300 hover:border-gray-400"
+                  disabled={saving}
+                  className="flex-1 px-6 py-3.5 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-200 shadow-md hover:shadow-lg border-2 border-gray-300 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3.5 bg-[#0b8fac] text-white rounded-xl font-semibold hover:bg-[#0a7085] transition-all duration-200 shadow-lg hover:shadow-xl border-2 border-[#0b8fac] hover:border-[#0a7085] transform hover:scale-105"
+                  disabled={saving}
+                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3.5 bg-[#0b8fac] text-white rounded-xl font-semibold hover:bg-[#0a7085] transition-all duration-200 shadow-lg hover:shadow-xl border-2 border-[#0b8fac] hover:border-[#0a7085] transform hover:scale-105 disabled:opacity-80 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:bg-[#0b8fac]"
                 >
-                  <Save className="h-5 w-5" />
-                  <span>Enregistrer</span>
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin shrink-0" />
+                      <span>Enregistrement…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-5 w-5 shrink-0" />
+                      <span>Enregistrer</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {notice && (
+        <div
+          className="fixed bottom-6 left-1/2 z-[100] w-[min(92vw,26rem)] -translate-x-1/2 px-2"
+          role="alert"
+        >
+          <div
+            className={`rounded-2xl border-2 shadow-2xl p-5 flex gap-4 items-start backdrop-blur-sm ${
+              notice.variant === 'success'
+                ? 'bg-gradient-to-br from-white via-white to-emerald-50/90 border-emerald-200/90'
+                : 'bg-gradient-to-br from-white via-white to-red-50/90 border-red-200/90'
+            }`}
+          >
+            {notice.variant === 'success' ? (
+              <div className="rounded-full bg-emerald-100 p-2 shrink-0">
+                <CheckCircle2 className="h-7 w-7 text-emerald-600" strokeWidth={2.25} />
+              </div>
+            ) : (
+              <div className="rounded-full bg-red-100 p-2 shrink-0">
+                <AlertCircle className="h-7 w-7 text-red-600" strokeWidth={2.25} />
+              </div>
+            )}
+            <div className="flex-1 min-w-0 pt-0.5">
+              <p className="font-bold text-gray-900 text-lg leading-tight">{notice.title}</p>
+              <p className="text-sm text-gray-600 mt-2 leading-relaxed">{notice.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              aria-label="Fermer la notification"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
+    </>
   )
 }

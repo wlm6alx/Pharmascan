@@ -4,6 +4,7 @@ import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import PharmaScanLogo from '../components/PharmaScanLogo'
 import { ensurePharmacistRow } from '../lib/pharmacyHelpers'
+import { isPharmacistAppUser } from '../lib/appUserRole'
 
 const AUTH_ERROR_FR = {
   'Invalid login credentials': 'Email ou mot de passe incorrect.',
@@ -15,7 +16,9 @@ const AUTH_ERROR_FR = {
 
 function toFrenchAuthError(message) {
   const msg = String(message || '').trim()
-  return AUTH_ERROR_FR[msg] || 'Connexion impossible pour le moment. Veuillez réessayer.'
+  if (AUTH_ERROR_FR[msg]) return AUTH_ERROR_FR[msg]
+  if (msg.length > 0) return msg
+  return 'Connexion impossible pour le moment. Veuillez réessayer.'
 }
 
 export default function Login() {
@@ -28,6 +31,7 @@ export default function Login() {
   const location = useLocation()
   const pendingEmailConfirmation = location.state?.pendingEmailConfirmation
   const registrationComplete = location.state?.registrationComplete
+  const passwordReset = location.state?.passwordReset
 
   const signInWithFallback = async (emailValue, passwordValue) => {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -91,8 +95,33 @@ export default function Login() {
         throw new Error("La session est invalide. Merci de vous reconnecter.")
       }
 
+      const { ok: isPharmacist, error: roleReadError } = await isPharmacistAppUser(
+        supabase,
+        authUser.id
+      )
+      if (roleReadError) {
+        try {
+          await supabase.auth.signOut()
+        } catch {
+          /* ignore */
+        }
+        throw new Error(
+          'Impossible de vérifier votre profil. Veuillez réessayer. Si le problème persiste, contactez le support.'
+        )
+      }
+      if (!isPharmacist) {
+        try {
+          await supabase.auth.signOut()
+        } catch {
+          /* ignore */
+        }
+        throw new Error(
+          "Accès réservé aux comptes pharmacien. Votre profil n'a pas le rôle requis."
+        )
+      }
+
       let { data: profile } = await supabase
-        .from('pharmacists')
+        .from('pharmacien')
         .select('*')
         .eq('user_id', authUser.id)
         .maybeSingle()
@@ -140,15 +169,19 @@ export default function Login() {
 
           {pendingEmailConfirmation && (
             <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
-              <strong>Confirmez votre e-mail.</strong> Un lien vous a été envoyé. Après validation, connectez-vous ici.
-              Les documents (attestation, photo) pourront être déposés depuis la page <strong>Profil</strong> après
-              votre première connexion si l’envoi n’a pas été effectué avant la confirmation.
+              <strong>Confirmez votre e-mail.</strong> Lien envoyé ! Validez votre compte, puis connectez-vous.
             </div>
           )}
 
           {registrationComplete && (
             <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-900">
               Inscription enregistrée. Vous pouvez vous connecter avec vos identifiants.
+            </div>
+          )}
+
+          {passwordReset && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-900">
+              Votre mot de passe a été modifié. Connectez-vous avec votre nouveau mot de passe.
             </div>
           )}
 

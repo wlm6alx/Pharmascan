@@ -13,25 +13,41 @@ export default function Notifications() {
   }, [user])
 
   const fetchNotifications = async () => {
+    if (!user?.id) {
+      setNotifications([])
+      setLoading(false)
+      return
+    }
     try {
       const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('pharmacy_id')
+        .from('pharmacien')
+        .select('pharmacie_id')
         .eq('user_id', user.id)
-        .single()
+        .maybeSingle()
 
-      if (pharmacist?.pharmacy_id) {
+      if (pharmacist?.pharmacie_id) {
         const { data, error } = await supabase
           .from('notifications')
           .select('*')
-          .eq('pharmacy_id', pharmacist.pharmacy_id)
-          .order('created_at', { ascending: false })
+          .eq('pharmacie_id', pharmacist.pharmacie_id)
+          .order('cree_le', { ascending: false })
 
-        if (error) throw error
-        setNotifications(data || [])
+        if (error) {
+          if (error.code === 'PGRST205' || error.code === '42P01') {
+            setNotifications([])
+          } else {
+            console.warn('Notifications:', error.message)
+            setNotifications([])
+          }
+        } else {
+          setNotifications(data || [])
+        }
+      } else {
+        setNotifications([])
       }
     } catch (error) {
-      console.error('Erreur:', error)
+      setNotifications([])
+      if (error?.code !== 'PGRST205') console.warn('Notifications:', error)
     } finally {
       setLoading(false)
     }
@@ -107,18 +123,18 @@ export default function Notifications() {
                 notifications.map((notification) => (
                   <tr 
                     key={notification.id} 
-                    className={`hover:bg-gray-50 ${!notification.read ? 'bg-blue-50' : ''}`}
+                    className={`hover:bg-gray-50 ${!notification.lu ? 'bg-blue-50' : ''}`}
                     onClick={async () => {
                       // Marquer comme lu au clic
-                      if (!notification.read) {
+                      if (!notification.lu) {
                         try {
                           await supabase
                             .from('notifications')
-                            .update({ read: true })
+                            .update({ lu: true })
                             .eq('id', notification.id)
                           // Mettre à jour l'état local
                           setNotifications(notifications.map(n => 
-                            n.id === notification.id ? { ...n, read: true } : n
+                            n.id === notification.id ? { ...n, lu: true } : n
                           ))
                         } catch (error) {
                           console.error('Erreur:', error)
@@ -127,13 +143,13 @@ export default function Notifications() {
                     }}
                   >
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {!notification.read && (
+                      {!notification.lu && (
                         <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
                       )}
                       {notification.description || ''}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatTime(notification.created_at)}
+                      {formatTime(notification.cree_le)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <button

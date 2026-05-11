@@ -1,20 +1,39 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { resolvePharmacyForPharmacist } from '../lib/pharmacyHelpers'
-import { Building2, MapPin, Phone, Mail, Clock, CheckCircle, XCircle } from 'lucide-react'
+import {
+  ensurePharmacistRow,
+  resolvePharmacyForPharmacist,
+  resolveOrCreatePharmacy,
+  PHARMACY_PROFILE_UPDATED_EVENT,
+} from '../lib/pharmacyHelpers'
+import {
+  getBrowserGeolocation,
+  pharmacyValidationKey,
+  splitPhoneForPharmacie,
+  T_PHARMACIE,
+  T_PHARMACIEN,
+} from '../lib/pharmacySchema'
+import { getPhoneCode } from '../lib/phoneCodes'
+import { Building2, MapPin, Phone, Clock, CheckCircle } from 'lucide-react'
 
 export default function Pharmacy() {
   const { user } = useAuth()
   const [pharmacy, setPharmacy] = useState(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
+  const [geoLoading, setGeoLoading] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
-    address: '',
-    phone: '',
-    email: '',
-    is_on_duty: false,
+    adress: '',
+    pays: '',
+    ville: '',
+    quartier: '',
+    agrementnumber: '',
+    phoneCode: '+237',
+    phoneNumber: '',
+    latitude: 0,
+    longitude: 0,
   })
 
   useEffect(() => {
@@ -27,22 +46,25 @@ export default function Pharmacy() {
         setLoading(false)
         return
       }
-      const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('*, pharmacies(*)')
-        .eq('user_id', user.id)
-        .single()
-
+      const pharmacist = await ensurePharmacistRow(supabase, user)
       const pharm = await resolvePharmacyForPharmacist(supabase, pharmacist)
       if (pharm) {
         setPharmacy(pharm)
+        const phone = String(pharm.phone_number ?? '')
         setFormData({
           name: pharm.name || '',
-          address: pharm.address || '',
-          phone: pharm.phone || '',
-          email: pharm.email || '',
-          is_on_duty: pharm.is_on_duty || false,
+          adress: pharm.adress || '',
+          pays: pharm.pays || '',
+          ville: pharm.ville || '',
+          quartier: pharm.quartier || '',
+          agrementnumber: pharm.agrementnumber || '',
+          phoneCode: pharm.indicphone || getPhoneCode('CM').code,
+          phoneNumber: phone,
+          latitude: pharm.latitude ?? 0,
+          longitude: pharm.longitude ?? 0,
         })
+      } else {
+        setPharmacy(null)
       }
     } catch (error) {
       console.error('Erreur:', error)
@@ -52,36 +74,67 @@ export default function Pharmacy() {
   }
 
   const handleChange = (e) => {
-    const { name, value, type, checked } = e.target
+    const { name, value } = e.target
     setFormData((prev) => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value,
+      [name]: value,
     }))
   }
 
+  const applyGeolocation = async () => {
+    setGeoLoading(true)
+    try {
+      const { latitude, longitude } = await getBrowserGeolocation()
+      setFormData((prev) => ({ ...prev, latitude, longitude }))
+    } finally {
+      setGeoLoading(false)
+    }
+  }
+
+  const buildPayload = () => {
+    const phone = splitPhoneForPharmacie(formData.phoneCode, formData.phoneNumber)
+    return {
+      name: formData.name.trim() || 'Pharmacie',
+      adress: formData.adress.trim() || '—',
+      pays: formData.pays.trim() || '—',
+      ville: formData.ville.trim() || '—',
+      quartier: formData.quartier.trim() || '—',
+      agrementnumber: formData.agrementnumber.trim() || '—',
+      indicphone: phone.indicphone,
+      phone_number: phone.phone_number.toString(),
+      latitude: Number(formData.latitude) || 0,
+      longitude: Number(formData.longitude) || 0,
+      localisation: 0,
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
-      const pid = pharmacy?.id
-      if (!pid) {
-        alert('Pharmacie introuvable. Rechargez la page.')
+      const pharmacist = await ensurePharmacistRow(supabase, user)
+      if (!pharmacist) {
+        alert('Profil pharmacien introuvable.')
         return
       }
-      const { error } = await supabase
-        .from('pharmacies')
-        .update({
-          name: formData.name,
-          address: formData.address,
-          phone: formData.phone,
-          email: formData.email,
-          is_on_duty: formData.is_on_duty,
-        })
-        .eq('id', pid)
+      const payload = buildPayload()
+      let row = await resolvePharmacyForPharmacist(supabase, pharmacist)
 
-      if (error) throw error
+      if (!row) {
+        row = await resolveOrCreatePharmacy(supabase, pharmacist, {
+          ...payload,
+          attestationPath: 'pending',
+          justifPath: 'pending',
+        })
+      } else {
+        const { error } = await supabase
+          .from(T_PHARMACIE)
+          .update(payload)
+          .eq('pharmacie_id', row.pharmacie_id)
+        if (error) throw error
+      }
 
       await fetchPharmacy()
+      window.dispatchEvent(new Event(PHARMACY_PROFILE_UPDATED_EVENT))
       setEditing(false)
       alert('Pharmacie mise à jour avec succès')
     } catch (error) {
@@ -92,22 +145,23 @@ export default function Pharmacy() {
   const handleCreatePharmacy = async (e) => {
     e.preventDefault()
     try {
-      const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('id')
-        .eq('user_id', user.id)
-        .single()
-
+      const pharmacist = await ensurePharmacistRow(supabase, user)
+      if (!pharmacist) {
+        alert('Profil pharmacien introuvable.')
+        return
+      }
+      const payload = buildPayload()
       const { data, error } = await supabase
-        .from('pharmacies')
+        .from(T_PHARMACIE)
         .insert({
-          name: formData.name,
-          address: formData.address,
-          phone: formData.phone,
-          email: formData.email,
-          is_on_duty: formData.is_on_duty,
-          pharmacist_id: pharmacist.id,
-          status: 'pending',
+          ...payload,
+          attestationPath: 'pending',
+          justifPath: 'pending',
+          profile_path: null,
+          status: 'close',
+          validate: false,
+          exist: true,
+          created_for_user_id: user.id,
         })
         .select()
         .single()
@@ -115,13 +169,14 @@ export default function Pharmacy() {
       if (error) throw error
 
       await supabase
-        .from('pharmacists')
-        .update({ pharmacy_id: data.id })
-        .eq('id', pharmacist.id)
+        .from(T_PHARMACIEN)
+        .update({ pharmacie_id: data.pharmacie_id })
+        .eq('user_id', user.id)
 
       await fetchPharmacy()
+      window.dispatchEvent(new Event(PHARMACY_PROFILE_UPDATED_EVENT))
       setEditing(false)
-      alert('Pharmacie créée avec succès (en attente de validation)')
+      alert('Pharmacie créée (documents et validation à compléter depuis le profil)')
     } catch (error) {
       alert('Erreur lors de la création: ' + error.message)
     }
@@ -130,6 +185,8 @@ export default function Pharmacy() {
   if (loading) {
     return <div className="text-center py-8">Chargement...</div>
   }
+
+  const vLabel = pharmacy ? pharmacyValidationKey(pharmacy) : null
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
@@ -146,14 +203,12 @@ export default function Pharmacy() {
       </div>
 
       {!pharmacy ? (
-            <div className="bg-white rounded-lg shadow p-4 sm:p-6 lg:p-8">
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6 lg:p-8">
           <h2 className="text-xl font-semibold mb-4">Créer ma pharmacie</h2>
           <form onSubmit={handleCreatePharmacy} className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nom de la pharmacie *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nom *</label>
                 <input
                   type="text"
                   name="name"
@@ -164,60 +219,101 @@ export default function Pharmacy() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Téléphone
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">N° agrément *</label>
                 <input
-                  type="tel"
-                  name="phone"
-                  value={formData.phone}
+                  type="text"
+                  name="agrementnumber"
+                  value={formData.agrementnumber}
                   onChange={handleChange}
+                  required
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
               </div>
             </div>
-
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Adresse *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Adresse *</label>
               <input
                 type="text"
-                name="address"
-                value={formData.address}
+                name="adress"
+                value={formData.adress}
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
             </div>
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Pays *</label>
+                <input
+                  type="text"
+                  name="pays"
+                  value={formData.pays}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Ville *</label>
+                <input
+                  type="text"
+                  name="ville"
+                  value={formData.ville}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+            </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Quartier *</label>
               <input
-                type="email"
-                name="email"
-                value={formData.email}
+                type="text"
+                name="quartier"
+                value={formData.quartier}
                 onChange={handleChange}
+                required
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
             </div>
-
-
-            <div className="flex items-center">
-              <input
-                type="checkbox"
-                name="is_on_duty"
-                checked={formData.is_on_duty}
-                onChange={handleChange}
-                className="h-4 w-4 text-mint-DEFAULT"
-              />
-              <label className="ml-2 text-sm text-gray-700">
-                Pharmacie de garde
-              </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Indicatif</label>
+                <input
+                  type="text"
+                  name="phoneCode"
+                  value={formData.phoneCode}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Numéro (chiffres)</label>
+                <input
+                  type="text"
+                  name="phoneNumber"
+                  value={formData.phoneNumber}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
             </div>
-
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Latitude / longitude</label>
+                <p className="text-sm text-gray-600">
+                  {formData.latitude}, {formData.longitude}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={applyGeolocation}
+                disabled={geoLoading}
+                className="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm disabled:opacity-50"
+              >
+                {geoLoading ? 'Localisation…' : 'Utiliser ma position'}
+              </button>
+            </div>
             <button
               type="submit"
               className="px-6 py-3 bg-mint-DEFAULT text-white rounded-lg hover:bg-mint-dark transition font-medium shadow-md hover:shadow-lg"
@@ -227,14 +323,12 @@ export default function Pharmacy() {
           </form>
         </div>
       ) : (
-            <div className="bg-white rounded-lg shadow p-4 sm:p-6 lg:p-8">
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6 lg:p-8">
           {editing ? (
             <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nom de la pharmacie *
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nom *</label>
                   <input
                     type="text"
                     name="name"
@@ -245,60 +339,101 @@ export default function Pharmacy() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Téléphone
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">N° agrément *</label>
                   <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
+                    type="text"
+                    name="agrementnumber"
+                    value={formData.agrementnumber}
                     onChange={handleChange}
+                    required
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   />
                 </div>
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Adresse *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Adresse *</label>
                 <input
                   type="text"
-                  name="address"
-                  value={formData.address}
+                  name="adress"
+                  value={formData.adress}
                   onChange={handleChange}
                   required
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
               </div>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Pays *</label>
+                  <input
+                    type="text"
+                    name="pays"
+                    value={formData.pays}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Ville *</label>
+                  <input
+                    type="text"
+                    name="ville"
+                    value={formData.ville}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Quartier *</label>
                 <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
+                  type="text"
+                  name="quartier"
+                  value={formData.quartier}
                   onChange={handleChange}
+                  required
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
               </div>
-
-
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  name="is_on_duty"
-                  checked={formData.is_on_duty}
-                  onChange={handleChange}
-                  className="h-4 w-4 text-mint-DEFAULT"
-                />
-                <label className="ml-2 text-sm text-gray-700">
-                  Pharmacie de garde
-                </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Indicatif</label>
+                  <input
+                    type="text"
+                    name="phoneCode"
+                    value={formData.phoneCode}
+                    onChange={handleChange}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Numéro</label>
+                  <input
+                    type="text"
+                    name="phoneNumber"
+                    value={formData.phoneNumber}
+                    onChange={handleChange}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
               </div>
-
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Latitude / longitude</label>
+                  <p className="text-sm text-gray-600">
+                    {formData.latitude}, {formData.longitude}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={applyGeolocation}
+                  disabled={geoLoading}
+                  className="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm disabled:opacity-50"
+                >
+                  {geoLoading ? 'Localisation…' : 'Mettre à jour la position'}
+                </button>
+              </div>
               <div className="flex space-x-4">
                 <button
                   type="submit"
@@ -327,7 +462,7 @@ export default function Pharmacy() {
                     {pharmacy.name}
                   </h2>
                   <div className="mt-2 flex items-center space-x-2">
-                    {pharmacy.status === 'approved' ? (
+                    {vLabel === 'approuvee' ? (
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                         <CheckCircle className="h-3 w-3 mr-1" />
                         Validée
@@ -336,12 +471,6 @@ export default function Pharmacy() {
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                         <Clock className="h-3 w-3 mr-1" />
                         En attente de validation
-                      </span>
-                    )}
-                    {pharmacy.is_on_duty && (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        <Clock className="h-3 w-3 mr-1" />
-                        De garde
                       </span>
                     )}
                   </div>
@@ -353,30 +482,32 @@ export default function Pharmacy() {
                   <MapPin className="h-5 w-5 text-gray-400 mt-1" />
                   <div>
                     <p className="text-sm font-medium text-gray-500">Adresse</p>
-                    <p className="text-gray-900">{pharmacy.address || 'Non définie'}</p>
+                    <p className="text-gray-900">{pharmacy.adress || '—'}</p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {pharmacy.ville}, {pharmacy.quartier} — {pharmacy.pays}
+                    </p>
                   </div>
                 </div>
 
-                {pharmacy.phone && (
-                  <div className="flex items-start space-x-3">
-                    <Phone className="h-5 w-5 text-gray-400 mt-1" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Téléphone</p>
-                      <p className="text-gray-900">{pharmacy.phone}</p>
-                    </div>
+                <div className="flex items-start space-x-3">
+                  <Phone className="h-5 w-5 text-gray-400 mt-1" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Téléphone</p>
+                    <p className="text-gray-900">
+                      {pharmacy.indicphone} {pharmacy.phone_number}
+                    </p>
                   </div>
-                )}
+                </div>
 
-                {pharmacy.email && (
-                  <div className="flex items-start space-x-3">
-                    <Mail className="h-5 w-5 text-gray-400 mt-1" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Email</p>
-                      <p className="text-gray-900">{pharmacy.email}</p>
-                    </div>
+                <div className="flex items-start space-x-3 md:col-span-2">
+                  <MapPin className="h-5 w-5 text-gray-400 mt-1" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Coordonnées GPS</p>
+                    <p className="text-gray-900">
+                      {pharmacy.latitude}, {pharmacy.longitude}
+                    </p>
                   </div>
-                )}
-
+                </div>
               </div>
             </div>
           )}
@@ -385,4 +516,3 @@ export default function Pharmacy() {
     </div>
   )
 }
-

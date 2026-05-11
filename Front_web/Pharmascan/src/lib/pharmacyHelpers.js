@@ -1,38 +1,36 @@
+import {
+  T_PHARMACIE,
+  T_PHARMACIEN,
+  pharmacyRowId,
+  splitPhoneForPharmacie,
+} from './pharmacySchema'
+
 /** Émis après mise à jour du profil pharmacie (photo, etc.) pour rafraîchir la barre / le layout. */
 export const PHARMACY_PROFILE_UPDATED_EVENT = 'pharmacy-profile-updated'
 
 /**
- * Supabase renvoie parfois `pharmacies` comme objet, parfois comme tableau (relation 1–1).
+ * Supabase renvoie parfois un embed comme objet, parfois comme tableau (relation 1–1).
  */
 export function normalizeEmbeddedPharmacy(pharmacist) {
-  if (!pharmacist?.pharmacies) return null
-  const p = pharmacist.pharmacies
+  if (!pharmacist?.pharmacie) return null
+  const p = pharmacist.pharmacie
   return Array.isArray(p) ? p[0] ?? null : p
 }
 
 /**
- * Résout la ligne pharmacie même si l’embed `pharmacies(*)` est vide (ex. pharmacy_id non
- * synchronisé) ou si les politiques RLS bloquent l’embed — repli par id ou par pharmacist_id.
+ * Résout la ligne pharmacie via pharmacien.pharmacie_id ou embed pharmacie.
  */
 export async function resolvePharmacyForPharmacist(supabase, pharmacist) {
   if (!pharmacist) return null
   const embedded = normalizeEmbeddedPharmacy(pharmacist)
   if (embedded) return embedded
 
-  if (pharmacist.pharmacy_id) {
+  const pid = pharmacist.pharmacie_id
+  if (pid) {
     const { data, error } = await supabase
-      .from('pharmacies')
+      .from(T_PHARMACIE)
       .select('*')
-      .eq('id', pharmacist.pharmacy_id)
-      .maybeSingle()
-    if (!error && data) return data
-  }
-
-  if (pharmacist.id) {
-    const { data, error } = await supabase
-      .from('pharmacies')
-      .select('*')
-      .eq('pharmacist_id', pharmacist.id)
+      .eq('pharmacie_id', pid)
       .maybeSingle()
     if (!error && data) return data
   }
@@ -40,24 +38,43 @@ export async function resolvePharmacyForPharmacist(supabase, pharmacist) {
   return null
 }
 
+const DEFAULT_ATTEST_PLACEHOLDER = 'pending'
+
 /**
- * Si aucune pharmacie n’est lisible (ou absente), crée la ligne et lie `pharmacists.pharmacy_id`.
- * À utiliser quand resolvePharmacyForPharmacist renvoie null mais le pharmacien existe.
+ * Crée une pharmacie minimale et lie pharmacien.pharmacie_id.
  */
 export async function resolveOrCreatePharmacy(supabase, pharmacist, insertRow) {
   const existing = await resolvePharmacyForPharmacist(supabase, pharmacist)
   if (existing) return existing
 
-  if (!pharmacist?.id) return null
+  if (!pharmacist?.pharmacien_id && !pharmacist?.user_id) return null
+
+  const phone = splitPhoneForPharmacie(insertRow.indicphone, insertRow.phone_number)
+  const lat = insertRow.latitude ?? 0
+  const lng = insertRow.longitude ?? 0
 
   const { data, error } = await supabase
-    .from('pharmacies')
+    .from(T_PHARMACIE)
     .insert({
-      ...insertRow,
-      pharmacist_id: pharmacist.id,
-      status: 'pending',
-      operational_status: 'closed',
-      is_on_duty: false,
+      name: insertRow.name || 'Pharmacie',
+      adress: insertRow.adress || '—',
+      pays: insertRow.pays || '—',
+      ville: insertRow.ville || '—',
+      quartier: insertRow.quartier || '—',
+      agrementnumber: insertRow.agrementnumber || '—',
+      attestationPath: insertRow.attestationPath || DEFAULT_ATTEST_PLACEHOLDER,
+      justifPath: insertRow.justifPath || insertRow.attestationPath || DEFAULT_ATTEST_PLACEHOLDER,
+      latitude: lat,
+      longitude: lng,
+      localisation: 0,
+      indicphone: phone.indicphone,
+      phone_number: phone.phone_number.toString(),
+      profile_path: insertRow.profile_path ?? null,
+      status: 'close',
+      validate: false,
+      exist: true,
+      /** RLS supabase_rls_pharmacie_pharmascan.sql : SELECT après INSERT avant liaison. */
+      created_for_user_id: pharmacist.user_id ?? null,
     })
     .select()
     .single()
@@ -68,23 +85,20 @@ export async function resolveOrCreatePharmacy(supabase, pharmacist, insertRow) {
     throw error
   }
 
+  const pharmId = pharmacyRowId(data)
   await supabase
-    .from('pharmacists')
-    .update({ pharmacy_id: data.id })
-    .eq('id', pharmacist.id)
+    .from(T_PHARMACIEN)
+    .update({ pharmacie_id: pharmId })
+    .eq('user_id', pharmacist.user_id)
 
   return data
 }
 
-/**
- * Sans embed `pharmacies(*)` : l’embed peut faire échouer toute la requête si les politiques
- * sur `pharmacies` bloquent la relation (PostgREST).
- */
-const PHARMACIST_CORE = 'id, pharmacy_id, first_name, last_name'
+const PHARMACIST_CORE = 'pharmacien_id, pharmacie_id, user_id, justifPath'
 
 async function fetchPharmacistCore(supabase, userId) {
   const { data, error } = await supabase
-    .from('pharmacists')
+    .from(T_PHARMACIEN)
     .select(PHARMACIST_CORE)
     .eq('user_id', userId)
     .maybeSingle()
@@ -93,8 +107,7 @@ async function fetchPharmacistCore(supabase, userId) {
 }
 
 /**
- * Garantit une ligne `pharmacists` : SELECT minimal, RPC serveur (SECURITY DEFINER),
- * bootstrap pharmacie, puis INSERT client.
+ * Garantit une ligne pharmacien (lien users ↔ pharmacie).
  */
 export async function ensurePharmacistRow(supabase, user) {
   if (!user?.id) return null
@@ -125,8 +138,12 @@ export async function ensurePharmacistRow(supabase, user) {
   }
 
   const { data: inserted, error: insErr } = await supabase
-    .from('pharmacists')
-    .insert({ user_id: user.id, email: user.email ?? null })
+    .from(T_PHARMACIEN)
+    .insert({
+      user_id: user.id,
+      justifPath: '',
+      responsability: 'pharmacien',
+    })
     .select(PHARMACIST_CORE)
     .maybeSingle()
 
@@ -141,15 +158,18 @@ export async function ensurePharmacistRow(supabase, user) {
   return null
 }
 
-/** open | closed | busy — avec repli si ancienne base sans operational_status. */
+/** ouvert | ferme | occupe — schéma pharmacie.status open | close */
 export function getOperationalStatus(pharmacy) {
-  if (!pharmacy) return 'closed'
-  if (pharmacy.operational_status) return pharmacy.operational_status
-  if (['open', 'closed', 'busy'].includes(pharmacy.status)) return pharmacy.status
-  return 'closed'
+  if (!pharmacy) return 'ferme'
+  if (pharmacy.statut_operationnel) {
+    if (pharmacy.statut_operationnel === 'ouvert') return 'ouvert'
+    return 'ferme'
+  }
+  if (pharmacy.status === 'open') return 'ouvert'
+  if (['ouvert', 'ferme', 'occupe'].includes(pharmacy.status)) return pharmacy.status
+  return 'ferme'
 }
 
-/** Ouvert au public : operational_status === 'open' (ou repli legacy). */
 export function isPharmacyOpenForDisplay(pharmacy) {
-  return getOperationalStatus(pharmacy) === 'open'
+  return getOperationalStatus(pharmacy) === 'ouvert'
 }

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { T_MEDICAMENT, medicamentBarcodeFromRow } from '../lib/medicationSchema'
 import {
   isMedicationExpired,
   expirationDateSortKey,
@@ -67,23 +68,35 @@ export default function Dashboard() {
     try {
       if (user?.id) {
         const { data: pharmacist } = await supabase
-          .from('pharmacists')
-          .select('pharmacy_id')
+          .from('pharmacien')
+          .select('pharmacie_id')
           .eq('user_id', user.id)
           .maybeSingle()
 
-        if (!pharmacist?.pharmacy_id) {
+        if (!pharmacist?.pharmacie_id) {
           setMedications([])
           setStats(computeStats([]))
         } else {
           const { data, error } = await supabase
-            .from('medications')
+            .from(T_MEDICAMENT)
             .select('*')
-            .eq('pharmacy_id', pharmacist.pharmacy_id)
-            .order('created_at', { ascending: false })
+            .eq('pharmacie_id', pharmacist.pharmacie_id)
+            .order('cree_le', { ascending: false })
 
           if (error) throw error
-          const meds = data || []
+          const meds = (data || []).map((row) => ({
+            ...row,
+            name: row.nom,
+            category: row.categorie,
+            quantity: row.quantite,
+            production_date: row.date_production,
+            expiration_date: row.date_expiration,
+            manufacturer: row.fabricant,
+            form: row.forme,
+            barcode: medicamentBarcodeFromRow(row),
+            photo_urls: row.urls_photos,
+            price: row.prix,
+          }))
           setMedications(meds)
           setStats(computeStats(meds))
         }
@@ -92,7 +105,9 @@ export default function Dashboard() {
         setStats(computeStats([]))
       }
     } catch (error) {
-      console.error('Erreur:', error)
+      if (error?.code !== 'PGRST205') {
+        console.warn('Dashboard médicaments:', error?.message || error)
+      }
       setMedications([])
       setStats(computeStats([]))
     } finally {
@@ -128,12 +143,9 @@ export default function Dashboard() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 bg-white min-h-screen">
       <div className="mb-8">
-        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-2">
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900">
           Bienvenue
         </h1>
-        <p className="text-gray-600 text-sm sm:text-base">
-          Vue d'ensemble de votre pharmacie
-        </p>
       </div>
 
       {loading ? (
@@ -151,7 +163,6 @@ export default function Dashboard() {
             </div>
           </div>
           <p className="text-5xl font-bold text-blue-900">{stats.totalStock}</p>
-          <p className="text-xs text-blue-600 mt-2">unités en stock (somme des quantités)</p>
         </div>
 
         <button
@@ -169,12 +180,6 @@ export default function Dashboard() {
             </div>
           </div>
           <p className="text-5xl font-bold text-red-700">{stats.lowStock}</p>
-          <p className="text-xs text-red-600 mt-2">
-            lignes avec quantité &lt; {LOW_STOCK_THRESHOLD}
-          </p>
-          <p className="text-xs font-medium text-red-800/80 mt-3 underline decoration-red-400/80 underline-offset-2">
-            Cliquer pour voir les médicaments concernés
-          </p>
         </button>
 
         <button
@@ -192,24 +197,17 @@ export default function Dashboard() {
             </div>
           </div>
           <p className="text-5xl font-bold text-green-700">{stats.expiredStock}</p>
-          <p className="text-xs text-green-600 mt-2">médicaments dont le mois d’expiration est dépassé</p>
-          <p className="text-xs font-medium text-green-800/80 mt-3 underline decoration-green-400/80 underline-offset-2">
-            Cliquer pour voir les médicaments concernés
-          </p>
         </button>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
         <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-lg sm:p-6">
-          <h2 className="mb-1 flex items-center text-lg font-bold text-gray-900 sm:text-xl">
+          <h2 className="mb-4 flex items-center text-lg font-bold text-gray-900 sm:text-xl">
             <span className="mr-3 h-8 w-1 shrink-0 rounded-full bg-[#0b8fac]" />
             Classement par stock
           </h2>
-          <p className="mb-4 text-sm text-gray-500">
-            Jusqu’à 6 produits avec le plus d’unités. Les ventes ne sont pas suivies dans l’application.
-          </p>
           {topMeds.length === 0 ? (
-            <p className="py-12 text-center text-gray-500">Aucun médicament enregistré.</p>
+            <p className="py-12 text-center text-gray-500">Aucune donnée</p>
           ) : (
             <ul className="space-y-3">
               {topMeds.map((m, i) => {
@@ -255,17 +253,12 @@ export default function Dashboard() {
         </div>
 
         <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-lg sm:p-6">
-          <h2 className="mb-1 flex items-center text-lg font-bold text-gray-900 sm:text-xl">
+          <h2 className="mb-4 flex items-center text-lg font-bold text-gray-900 sm:text-xl">
             <span className="mr-3 h-8 w-1 shrink-0 rounded-full bg-[#0b8fac]" />
             Graphique par catégorie
           </h2>
-          <p className="mb-4 text-sm text-gray-500">
-            Nombre de <strong>fiches</strong> médicaments par catégorie (une ligne = une fiche).
-          </p>
           {categories.length === 0 ? (
-            <p className="py-12 text-center text-gray-500">
-              Ajoutez une catégorie sur vos médicaments pour afficher le graphique.
-            </p>
+            <p className="py-12 text-center text-gray-500">Aucune donnée</p>
           ) : (
             <div className="space-y-5">
               <div className="overflow-x-auto rounded-xl bg-gradient-to-b from-gray-50 to-white p-3 ring-1 ring-gray-100 sm:p-4">
@@ -294,7 +287,7 @@ export default function Dashboard() {
                             height: `${barH}px`,
                             backgroundColor: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
                           }}
-                          title={`${c.name}: ${c.count} fiche(s)`}
+                          title={`${c.name}: ${c.count}`}
                         />
                         <p className="mt-2 max-w-full px-0.5 text-center text-[10px] leading-tight text-gray-600 sm:text-xs">
                           <span className="line-clamp-3 break-words">{c.name}</span>
@@ -306,9 +299,6 @@ export default function Dashboard() {
               </div>
 
               <div className="rounded-lg border border-gray-100 bg-gray-50/80 p-3 sm:p-4">
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Légende
-                </p>
                 <ul className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
                   {categories.map((c, i) => (
                     <li
@@ -325,8 +315,8 @@ export default function Dashboard() {
                         </span>
                       </span>
                       <span className="shrink-0 tabular-nums text-gray-600">
-                        {c.count} fiche{c.count > 1 ? 's' : ''}{' '}
-                        <span className="text-gray-400">({c.pct.toFixed(0)}%)</span>
+                        {c.count}
+                        <span className="text-gray-400"> · {c.pct.toFixed(0)}%</span>
                       </span>
                     </li>
                   ))}
@@ -356,9 +346,6 @@ export default function Dashboard() {
                 <h2 id="low-stock-modal-title" className="text-lg font-bold text-gray-900 sm:text-xl">
                   Médicaments — stock faible
                 </h2>
-                <p className="mt-1 text-sm text-gray-500">
-                  Quantité strictement inférieure à {LOW_STOCK_THRESHOLD} unités
-                </p>
               </div>
               <button
                 type="button"
@@ -371,9 +358,7 @@ export default function Dashboard() {
             </div>
             <div className="overflow-y-auto px-5 py-4 sm:px-6">
               {lowStockMedications.length === 0 ? (
-                <p className="py-8 text-center text-gray-500">
-                  Aucun médicament en stock faible pour le moment.
-                </p>
+                <p className="py-8 text-center text-gray-500">Aucune donnée</p>
               ) : (
                 <ul className="divide-y divide-gray-100">
                   {lowStockMedications.map((m) => {
@@ -432,9 +417,6 @@ export default function Dashboard() {
                 <h2 id="expired-stock-modal-title" className="text-lg font-bold text-gray-900 sm:text-xl">
                   Médicaments — stock expiré
                 </h2>
-                <p className="mt-1 text-sm text-gray-500">
-                  Mois / année d’expiration dépassés (produit considéré expiré après la fin de ce mois)
-                </p>
               </div>
               <button
                 type="button"
@@ -447,9 +429,7 @@ export default function Dashboard() {
             </div>
             <div className="overflow-y-auto px-5 py-4 sm:px-6">
               {expiredMedications.length === 0 ? (
-                <p className="py-8 text-center text-gray-500">
-                  Aucun médicament expiré pour le moment.
-                </p>
+                <p className="py-8 text-center text-gray-500">Aucune donnée</p>
               ) : (
                 <ul className="divide-y divide-gray-100">
                   {expiredMedications.map((m) => {

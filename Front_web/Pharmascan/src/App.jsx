@@ -4,6 +4,7 @@ import { isSupabaseConfigured } from './lib/supabase'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Pharmacy from './pages/Pharmacy'
@@ -43,6 +44,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/register" element={<Register />} />
         <Route
           path="/dashboard"

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { T_MEDICAMENT, medicamentBarcodeFromRow } from '../lib/medicationSchema'
 import { Package, Search, CheckCircle, XCircle, Edit } from 'lucide-react'
 
 export default function Availability() {
@@ -16,17 +17,17 @@ export default function Availability() {
   const fetchMedications = async () => {
     try {
       const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('pharmacy_id')
+        .from('pharmacien')
+        .select('pharmacie_id')
         .eq('user_id', user.id)
-        .single()
+        .maybeSingle()
 
-      if (pharmacist?.pharmacy_id) {
+      if (pharmacist?.pharmacie_id) {
         const { data, error } = await supabase
-          .from('medications')
+          .from(T_MEDICAMENT)
           .select('*')
-          .eq('pharmacy_id', pharmacist.pharmacy_id)
-          .order('name', { ascending: true })
+          .eq('pharmacie_id', pharmacist.pharmacie_id)
+          .order('nom', { ascending: true })
 
         if (error) throw error
         setMedications(data || [])
@@ -41,8 +42,8 @@ export default function Availability() {
   const toggleAvailability = async (medication) => {
     try {
       const { error } = await supabase
-        .from('medications')
-        .update({ available: !medication.available })
+        .from(T_MEDICAMENT)
+        .update({ disponible: !medication.disponible })
         .eq('id', medication.id)
 
       if (error) throw error
@@ -55,10 +56,10 @@ export default function Availability() {
   const updateQuantity = async (medication, newQuantity) => {
     try {
       const { error } = await supabase
-        .from('medications')
+        .from(T_MEDICAMENT)
         .update({ 
-          quantity: parseInt(newQuantity) || 0,
-          available: parseInt(newQuantity) > 0
+          quantite: parseInt(newQuantity) || 0,
+          disponible: parseInt(newQuantity) > 0
         })
         .eq('id', medication.id)
 
@@ -70,12 +71,12 @@ export default function Availability() {
   }
 
   const filteredMedications = medications.filter((med) =>
-    med.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    med.barcode?.includes(searchTerm)
+    med.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    String(medicamentBarcodeFromRow(med) || '').includes(searchTerm)
   )
 
-  const availableCount = medications.filter(m => m.available).length
-  const outOfStockCount = medications.filter(m => !m.available).length
+  const availableCount = medications.filter(m => m.disponible).length
+  const outOfStockCount = medications.filter(m => !m.disponible).length
 
   return (
     <div>
@@ -159,7 +160,7 @@ export default function Availability() {
                   <tr key={medication.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div>
-                        <div className="font-medium text-gray-900">{medication.name}</div>
+                        <div className="font-medium text-gray-900">{medication.nom}</div>
                         {medication.dosage && (
                           <div className="text-sm text-gray-500">{medication.dosage}</div>
                         )}
@@ -169,10 +170,10 @@ export default function Availability() {
                       <input
                         type="number"
                         min="0"
-                        value={medication.quantity || 0}
+                        value={medication.quantite || 0}
                         onChange={(e) => updateQuantity(medication, e.target.value)}
                         onBlur={(e) => {
-                          if (e.target.value !== (medication.quantity || 0).toString()) {
+                          if (e.target.value !== (medication.quantite || 0).toString()) {
                             updateQuantity(medication, e.target.value)
                           }
                         }}
@@ -180,7 +181,7 @@ export default function Availability() {
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {medication.available ? (
+                      {medication.disponible ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                           <CheckCircle className="h-3 w-3 mr-1" />
                           Disponible
@@ -196,12 +197,12 @@ export default function Availability() {
                       <button
                         onClick={() => toggleAvailability(medication)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                          medication.available
+                          medication.disponible
                             ? 'bg-red-100 text-red-700 hover:bg-red-200'
                             : 'bg-green-100 text-green-700 hover:bg-green-200'
                         }`}
                       >
-                        {medication.available ? 'Marquer rupture' : 'Marquer disponible'}
+                        {medication.disponible ? 'Marquer rupture' : 'Marquer disponible'}
                       </button>
                     </td>
                   </tr>

@@ -28,10 +28,20 @@ import {
   Trash2,
   X,
   AlertTriangle,
+  AlertCircle,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  CheckCircle2,
 } from 'lucide-react'
+import SimpleNoticeModal, { NOTICE_NEED_PHARMACY } from '../components/SimpleNoticeModal'
+import { ensurePharmacistRow, PHARMACY_PROFILE_UPDATED_EVENT } from '../lib/pharmacyHelpers'
+import {
+  T_MEDICAMENT,
+  BUCKET_MEDICATION_PHOTOS,
+  M_COL_CODE_BARRES,
+  medicamentBarcodeFromRow,
+} from '../lib/medicationSchema'
 
 const LOW_STOCK_THRESHOLD = 10
 
@@ -84,6 +94,10 @@ export default function Medications() {
   const [medicationToDelete, setMedicationToDelete] = useState(null)
   const [photoPreviews, setPhotoPreviews] = useState([])
   const [saving, setSaving] = useState(false)
+  const [pharmacieId, setPharmacieId] = useState(null)
+  const [needPharmacyNotice, setNeedPharmacyNotice] = useState(false)
+  /** Notification après actions (remplace alert natif) */
+  const [notice, setNotice] = useState(null)
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -106,29 +120,75 @@ export default function Medications() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
-  const fetchMedications = async () => {
-    if (!user?.id) return
-    
-    setLoading(true)
-    try {
-      const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('pharmacy_id')
-        .eq('user_id', user.id)
-        .single()
+  useEffect(() => {
+    if (!notice) return
+    const t = setTimeout(() => setNotice(null), 5500)
+    return () => clearTimeout(t)
+  }, [notice])
 
-      if (pharmacist?.pharmacy_id) {
+  const showNotice = (variant, title, message) => {
+    setNotice({ variant, title, message })
+  }
+
+  useEffect(() => {
+    const refresh = () => {
+      if (user?.id) fetchMedications()
+    }
+    window.addEventListener(PHARMACY_PROFILE_UPDATED_EVENT, refresh)
+    return () => window.removeEventListener(PHARMACY_PROFILE_UPDATED_EVENT, refresh)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
+  const toUiMedication = (row) => {
+    if (!row) return row
+    return {
+      ...row,
+      name: row.nom,
+      category: row.categorie,
+      barcode: medicamentBarcodeFromRow(row),
+      quantity: row.quantite,
+      available: row.disponible,
+      production_date: row.date_production,
+      expiration_date: row.date_expiration,
+      form: row.forme,
+      manufacturer: row.fabricant,
+      price: row.prix,
+      photo_urls: row.urls_photos,
+      pharmacy_id: row.pharmacie_id,
+    }
+  }
+
+  const fetchMedications = async () => {
+    if (!user?.id) {
+      setPharmacieId(null)
+      setMedications([])
+      return
+    }
+
+    setLoading(true)
+    let pid = null
+    try {
+      const pharmacist = await ensurePharmacistRow(supabase, user)
+      pid = pharmacist?.pharmacie_id ?? null
+      setPharmacieId(pid)
+
+      if (pid) {
         const { data, error } = await supabase
-          .from('medications')
+          .from(T_MEDICAMENT)
           .select('*')
-          .eq('pharmacy_id', pharmacist.pharmacy_id)
-          .order('created_at', { ascending: false })
+          .eq('pharmacie_id', pid)
+          .order('cree_le', { ascending: false })
 
         if (error) throw error
-        setMedications(data || [])
+        setMedications((data || []).map(toUiMedication))
+      } else {
+        setMedications([])
       }
     } catch (error) {
       console.error('Erreur:', error)
+      // Ne pas effacer pharmacie_id si seul le chargement des médicaments échoue (RLS, réseau, etc.)
+      setPharmacieId(pid)
+      setMedications([])
     } finally {
       setLoading(false)
     }
@@ -297,30 +357,25 @@ export default function Medications() {
         return
       }
 
-      const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('pharmacy_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!pharmacist?.pharmacy_id) {
-        alert('Veuillez d\'abord créer votre pharmacie')
+      const pharmacist = await ensurePharmacistRow(supabase, user)
+      if (!pharmacist?.pharmacie_id) {
+        setNeedPharmacyNotice(true)
         return
       }
 
       const medicationData = {
-        name: formData.name,
-        category: formData.category.trim(),
-        barcode: barcodeNorm,
-        quantity: formData.quantity,
-        production_date: monthYearToProductionIso(formData.productionDate) || null,
-        expiration_date: monthYearToExpirationIso(formData.expirationDate) || null,
+        nom: formData.name,
+        categorie: formData.category.trim(),
+        [M_COL_CODE_BARRES]: barcodeNorm,
+        quantite: formData.quantity,
+        date_production: monthYearToProductionIso(formData.productionDate) || null,
+        date_expiration: monthYearToExpirationIso(formData.expirationDate) || null,
         dosage: formData.dosage || '',
-        form: formData.form || '',
-        manufacturer: formData.manufacturer || '',
-        price: formData.price || 0,
-        pharmacy_id: pharmacist.pharmacy_id,
-        photo_urls: existingPhotoUrls,
+        forme: formData.form || '',
+        fabricant: formData.manufacturer || '',
+        prix: formData.price || 0,
+        pharmacie_id: pharmacist.pharmacie_id,
+        urls_photos: existingPhotoUrls,
       }
 
       const uploadMedicationPhotos = async (medicationId, filesToUpload) => {
@@ -330,11 +385,11 @@ export default function Medications() {
           const ext = (f?.name || '').split('.').pop()?.toLowerCase() || 'jpg'
           const path = `${user.id}/medications/${medicationId}/photo-${i + 1}.${ext}`
           const { error: uploadError } = await supabase.storage
-            .from('medication-photos')
+            .from(BUCKET_MEDICATION_PHOTOS)
             .upload(path, f, { upsert: true })
           if (uploadError) throw uploadError
           const { data: { publicUrl } } = supabase.storage
-            .from('medication-photos')
+            .from(BUCKET_MEDICATION_PHOTOS)
             .getPublicUrl(path)
           urls.push(publicUrl)
         }
@@ -344,7 +399,7 @@ export default function Medications() {
       if (editingMedication) {
         const medicationId = editingMedication.id
         const { error } = await supabase
-          .from('medications')
+          .from(T_MEDICAMENT)
           .update(medicationData)
           .eq('id', medicationId)
 
@@ -352,15 +407,15 @@ export default function Medications() {
         if (hasNewPhotos) {
           const urls = await uploadMedicationPhotos(medicationId, newPhotos)
           const { error: photoError } = await supabase
-            .from('medications')
-            .update({ photo_urls: urls })
+            .from(T_MEDICAMENT)
+            .update({ urls_photos: urls })
             .eq('id', medicationId)
           if (photoError) throw photoError
         }
-        alert('Médicament mis à jour avec succès')
+        showNotice('success', 'Enregistré', 'Médicament mis à jour avec succès.')
       } else {
         const { data: inserted, error } = await supabase
-          .from('medications')
+          .from(T_MEDICAMENT)
           .insert(medicationData)
           .select('id')
           .single()
@@ -370,12 +425,12 @@ export default function Medications() {
         if (hasNewPhotos) {
           const urls = await uploadMedicationPhotos(inserted.id, newPhotos)
           const { error: photoError } = await supabase
-            .from('medications')
-            .update({ photo_urls: urls })
+            .from(T_MEDICAMENT)
+            .update({ urls_photos: urls })
             .eq('id', inserted.id)
           if (photoError) throw photoError
         }
-        alert('Médicament ajouté avec succès')
+        showNotice('success', 'Ajouté', 'Médicament ajouté avec succès.')
       }
 
       setShowModal(false)
@@ -400,7 +455,7 @@ export default function Medications() {
       })
       fetchMedications()
     } catch (error) {
-      alert('Erreur: ' + error.message)
+      showNotice('error', 'Erreur', error?.message || 'Action impossible pour le moment.')
     } finally {
       setSaving(false)
     }
@@ -439,7 +494,7 @@ export default function Medications() {
 
     try {
       const { error } = await supabase
-        .from('medications')
+        .from(T_MEDICAMENT)
         .delete()
         .eq('id', medicationToDelete.id)
 
@@ -447,8 +502,9 @@ export default function Medications() {
       setShowDeleteConfirm(false)
       setMedicationToDelete(null)
       fetchMedications()
+      showNotice('success', 'Supprimé', 'Médicament supprimé avec succès.')
     } catch (error) {
-      alert('Erreur lors de la suppression: ' + error.message)
+      showNotice('error', 'Erreur', error?.message || 'Suppression impossible pour le moment.')
     }
   }
 
@@ -472,7 +528,18 @@ export default function Medications() {
           </div>
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
+              if (!user?.id) return
+              const pharmacist = await ensurePharmacistRow(supabase, user)
+              const pid = pharmacist?.pharmacie_id ?? null
+              const hasPharmacy = pid != null && String(pid).trim() !== ''
+              if (hasPharmacy) {
+                setPharmacieId(pid)
+              }
+              if (!hasPharmacy) {
+                setNeedPharmacyNotice(true)
+                return
+              }
               setEditingMedication(null)
               setFormData({
                 name: '',
@@ -1205,6 +1272,51 @@ export default function Medications() {
       )}
 
       {/* Modal de confirmation de suppression */}
+      <SimpleNoticeModal
+        open={needPharmacyNotice}
+        onClose={() => setNeedPharmacyNotice(false)}
+        message={NOTICE_NEED_PHARMACY}
+        linkTo="/pharmacy"
+        linkLabel="Ma Pharmacie"
+      />
+
+      {notice && (
+        <div
+          className="fixed bottom-6 left-1/2 z-[100] w-[min(92vw,26rem)] -translate-x-1/2 px-2"
+          role="alert"
+        >
+          <div
+            className={`rounded-2xl border-2 shadow-2xl p-5 flex gap-4 items-start backdrop-blur-sm ${
+              notice.variant === 'success'
+                ? 'bg-gradient-to-br from-white via-white to-emerald-50/90 border-emerald-200/90'
+                : 'bg-gradient-to-br from-white via-white to-red-50/90 border-red-200/90'
+            }`}
+          >
+            {notice.variant === 'success' ? (
+              <div className="rounded-full bg-emerald-100 p-2 shrink-0">
+                <CheckCircle2 className="h-7 w-7 text-emerald-600" strokeWidth={2.25} />
+              </div>
+            ) : (
+              <div className="rounded-full bg-red-100 p-2 shrink-0">
+                <AlertCircle className="h-7 w-7 text-red-600" strokeWidth={2.25} />
+              </div>
+            )}
+            <div className="flex-1 min-w-0 pt-0.5">
+              <p className="font-bold text-gray-900 text-lg leading-tight">{notice.title}</p>
+              <p className="text-sm text-gray-600 mt-2 leading-relaxed">{notice.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              aria-label="Fermer la notification"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {showDeleteConfirm && medicationToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-4 sm:p-6 lg:p-8 max-w-md w-full mx-4 relative shadow-2xl">

@@ -7,6 +7,7 @@ import {
   PHARMACY_PROFILE_UPDATED_EVENT,
   resolvePharmacyForPharmacist,
 } from '../lib/pharmacyHelpers'
+import { pharmacyValidationKey, T_PHARMACIE, T_PHARMACIEN } from '../lib/pharmacySchema'
 import { Bell, User, LogOut, Menu, X, Home, Pill, Building2, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import PharmaScanLogo from './PharmaScanLogo'
 
@@ -15,7 +16,7 @@ export default function Layout({ children }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [pharmacyStatus, setPharmacyStatus] = useState(false)
-  /** pending | approved | rejected — l’ouverture n’est autorisée qu’après validation admin */
+  /** en_attente | approuvee | rejetee — l’ouverture n’est autorisée qu’après validation admin */
   const [pharmacyValidationStatus, setPharmacyValidationStatus] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
@@ -59,16 +60,16 @@ export default function Layout({ children }) {
   const fetchPharmacyStatus = async () => {
     try {
       const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('id, pharmacy_id')
+        .from(T_PHARMACIEN)
+        .select('pharmacien_id, pharmacie_id, user_id')
         .eq('user_id', user?.id)
         .maybeSingle()
 
       const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
       if (pharmacy) {
         setPharmacyStatus(isPharmacyOpenForDisplay(pharmacy))
-        setPharmacyValidationStatus(pharmacy.status ?? null)
-        setPharmacyPhotoUrl(pharmacy.photo_url?.trim() || null)
+        setPharmacyValidationStatus(pharmacyValidationKey(pharmacy))
+        setPharmacyPhotoUrl(pharmacy.profile_path?.trim() || null)
       } else {
         setPharmacyStatus(false)
         setPharmacyValidationStatus(null)
@@ -83,22 +84,27 @@ export default function Layout({ children }) {
   const fetchUnreadNotifications = async () => {
     try {
       const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('id, pharmacy_id')
+        .from(T_PHARMACIEN)
+        .select('pharmacien_id, pharmacie_id, user_id')
         .eq('user_id', user?.id)
         .maybeSingle()
 
       const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
-      if (pharmacy?.id) {
+      if (pharmacy?.pharmacie_id) {
         const { data, error } = await supabase
           .from('notifications')
           .select('id')
-          .eq('pharmacy_id', pharmacy.id)
-          .eq('read', false)
+          .eq('pharmacie_id', pharmacy.pharmacie_id)
+          .eq('lu', false)
 
-        if (!error) {
-          setUnreadCount(data?.length || 0)
+        if (error) {
+          if (error.code !== 'PGRST205' && error.code !== '42P01') {
+            console.warn('[Layout] notifications:', error.message)
+          }
+          setUnreadCount(0)
+          return
         }
+        setUnreadCount(data?.length || 0)
       } else {
         setUnreadCount(0)
       }
@@ -121,7 +127,7 @@ export default function Layout({ children }) {
     return () => window.removeEventListener(PHARMACY_PROFILE_UPDATED_EVENT, onProfileUpdated)
   }, [])
 
-  const canToggleOperational = pharmacyValidationStatus === 'approved'
+  const canToggleOperational = pharmacyValidationStatus === 'approuvee'
 
   /** Tant que la pharmacie n’est pas approuvée, on n’affiche pas ouvert/fermé issu de la BDD (souvent trompeur). */
   const operationalDisplay = (() => {
@@ -132,17 +138,10 @@ export default function Layout({ children }) {
         switchOn: pharmacyStatus,
       }
     }
-    if (pharmacyValidationStatus === 'pending') {
+    if (pharmacyValidationStatus === 'en_attente') {
       return {
         line: '● En attente de validation',
         lineClass: 'text-amber-700',
-        switchOn: false,
-      }
-    }
-    if (pharmacyValidationStatus === 'rejected') {
-      return {
-        line: '● Non validée',
-        lineClass: 'text-red-600',
         switchOn: false,
       }
     }
@@ -162,18 +161,18 @@ export default function Layout({ children }) {
     }
     try {
       const { data: pharmacist } = await supabase
-        .from('pharmacists')
-        .select('id, pharmacy_id')
+        .from(T_PHARMACIEN)
+        .select('pharmacien_id, pharmacie_id, user_id')
         .eq('user_id', user?.id)
         .maybeSingle()
 
       const pharmacy = await resolvePharmacyForPharmacist(supabase, pharmacist)
-      if (pharmacy?.id) {
+      if (pharmacy?.pharmacie_id) {
         const nextOpen = !pharmacyStatus
         const { error } = await supabase
-          .from('pharmacies')
-          .update({ operational_status: nextOpen ? 'open' : 'closed' })
-          .eq('id', pharmacy.id)
+          .from(T_PHARMACIE)
+          .update({ status: nextOpen ? 'open' : 'close' })
+          .eq('pharmacie_id', pharmacy.pharmacie_id)
 
         if (error) {
           console.error(error)
@@ -351,12 +350,12 @@ export default function Layout({ children }) {
                   />
                 </button>
               </div>
-              {!canToggleOperational && pharmacyValidationStatus === 'pending' && (
+              {!canToggleOperational && pharmacyValidationStatus === 'en_attente' && (
                 <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                   Ouvert / fermé sera disponible après <strong>validation</strong> de votre pharmacie par un administrateur.
                 </p>
               )}
-              {!canToggleOperational && pharmacyValidationStatus === 'rejected' && (
+              {!canToggleOperational && pharmacyValidationStatus === 'rejetee' && (
                 <p className="mt-3 text-xs text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                   Pharmacie non validée. Contactez l’administrateur.
                 </p>
