@@ -17,24 +17,16 @@ export default function Utilisateurs() {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Début récupération utilisateurs...');
-      
       const { data, error } = await supabase
         .from('users')
         .select('id, name, surname, email, role, userState, created_at')
         .order('created_at', { ascending: false });
       
-      console.log('📊 Résultat requête utilisateurs:', { data, error });
-      
       if (error) {
-        console.error('❌ Erreur Supabase utilisateurs:', error);
         throw error;
       }
-      
-      console.log('✅ Utilisateurs chargés:', data?.length || 0, 'utilisateurs');
       setUsersData(data || []);
     } catch (err) {
-      console.error('❌ Erreur catch utilisateurs:', err);
       setError('Impossible de charger les utilisateurs');
     } finally {
       setLoading(false);
@@ -73,7 +65,6 @@ export default function Utilisateurs() {
       ));
       setConfirm(null);
     } catch (err) {
-      console.error('Erreur lors de la mise à jour du statut:', err);
     }
   };
 
@@ -91,7 +82,6 @@ export default function Utilisateurs() {
       setUsersData(usersData.filter(u => u.id !== id));
       setConfirm(null);
     } catch (err) {
-      console.error('Erreur lors de la suppression:', err);
     }
   };
 

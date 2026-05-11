@@ -11,8 +11,7 @@ export default function ProtectedRoute({ children }) {
     const checkAuth = async () => {
       // Écouter les changements d'authentification
       const unsubscribe = authService.onAuthStateChange(async (currentUser) => {
-        console.log('🔄 ProtectedRoute - Changement état auth:', currentUser);
-        setIsAuthenticated(!!currentUser);
+                setIsAuthenticated(!!currentUser);
         setUser(currentUser);
         
         if (currentUser) {
@@ -52,21 +51,18 @@ export default function ProtectedRoute({ children }) {
         fontSize: 16,
         color: '#666'
       }}>
-        <p>🔄 Vérification de l'authentification...</p>
+        <p> Vérification de l'authentification...</p>
       </div>
     );
   }
 
   if (!isAuthenticated) {
-    console.log('❌ Non authentifié - Redirection vers login');
     return <Navigate to="/" replace />;
   }
 
   if (!isAdmin) {
-    console.log('❌ Pas admin - Redirection vers login');
     return <Navigate to="/" replace />;
   }
 
-  console.log('✅ Accès autorisé - Utilisateur:', user);
-  return children;
+    return children;
 }

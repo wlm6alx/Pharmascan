@@ -21,7 +21,8 @@ export default function Login() {
   }, [navigate]);
 
   // Connexion avec Supabase
-  const handleLogin = async () => {
+  const handleLogin = async (e) => {
+    e.preventDefault();
     if (!username || !password) {
       setError('Veuillez remplir tous les champs');
       return;
@@ -30,16 +31,11 @@ export default function Login() {
     setError('');
 
     try {
-      console.log(' Tentative de connexion avec:', username);
-      
       const result = await authService.signIn(username, password);
       
       if (result.success) {
-        console.log(' Connexion réussie');
-        
-        // Vérifier si l'utilisateur est admin
-        const isAdminUser = await authService.isAdmin();
-        if (isAdminUser) {
+        const isAdmin = await authService.isAdmin();
+        if (isAdmin) {
           navigate('/dashboard');
         } else {
           setError('Accès réservé aux administrateurs');
@@ -49,7 +45,6 @@ export default function Login() {
         setError(result.error || 'Erreur de connexion');
       }
     } catch (err) {
-      console.error(' Erreur connexion:', err);
       setError('Erreur de connexion au serveur');
     }
   };

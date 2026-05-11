@@ -56,31 +56,19 @@ class AuthService {
   // Récupérer le profil utilisateur depuis le JWT (pas de requête users)
   async fetchUserProfile(userId) {
     try {
-      console.log('👤 Récupération du profil utilisateur depuis JWT...');
-      console.log('🔍 UserID:', userId);
-      
       // Récupérer la session et les métadonnées
-      console.log('🔍 Récupération de la session...');
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError) {
-        console.error('❌ Erreur session:', sessionError);
         return null;
       }
       
       if (!session) {
-        console.log('❌ Pas de session');
         return null;
       }
       
-      console.log('✅ Session trouvée:', session);
       const user = session.user;
-      console.log('🔍 User dans session:', user);
-      console.log('🔍 App metadata:', user?.app_metadata);
-      console.log('🔍 User metadata:', user?.user_metadata);
-      
       const role = user?.app_metadata?.role || user?.user_metadata?.role;
-      console.log('🔍 Rôle extrait:', role);
       
       // Créer un profil virtuel depuis le JWT
       const profile = {
@@ -94,20 +82,12 @@ class AuthService {
         ...(user.user_metadata || {})
       };
       
-      console.log('✅ Profil depuis JWT:', profile);
-      console.log('🔍 Rôle dans profil:', profile?.role);
-      
       this.user = { ...profile, authUser: profile };
       this.isAuthenticated = true;
       this.notifyListeners(this.user);
       
-      console.log('✅ User défini dans authService:', this.user);
-      console.log('✅ isAdmin() après fetch:', await this.isAdmin());
-      
       return profile;
     } catch (err) {
-      console.error('❌ Erreur fetchUserProfile:', err);
-      console.error('❌ Stack trace:', err.stack);
       return null;
     }
   }
@@ -140,10 +120,7 @@ class AuthService {
   // Vérifier si l'utilisateur est admin (uniquement depuis le JWT)
   async isAdmin() {
     const role = await this.getRoleFromJWT();
-    console.log('🔍 Rôle depuis JWT:', role);
-    const isAdmin = role === 'admin';
-    console.log('🔍 Est admin?', isAdmin);
-    return isAdmin;
+    return role === 'admin';
   }
 
   // Récupérer le rôle depuis le JWT (app_metadata)
@@ -152,7 +129,6 @@ class AuthService {
       // Récupérer la session actuelle
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        console.log('❌ Pas de session active');
         return null;
       }
       
@@ -160,14 +136,8 @@ class AuthService {
       // Priorité à app_metadata (plus sécurisé)
       const role = user?.app_metadata?.role || user?.user_metadata?.role;
       
-      console.log('🔍 Session user:', user);
-      console.log('🔍 App metadata:', user?.app_metadata);
-      console.log('🔍 User metadata:', user?.user_metadata);
-      console.log('🔍 Rôle trouvé:', role);
-      
       return role;
     } catch (error) {
-      console.error('❌ Erreur lecture JWT:', error);
       return null;
     }
   }
