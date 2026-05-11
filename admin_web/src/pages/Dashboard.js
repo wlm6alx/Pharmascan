@@ -67,7 +67,6 @@ export default function Dashboard() {
       setRecentActions(formattedActivities);
       
     } catch (error) {
-      console.error('Erreur lors de la récupération des données:', error);
       setConnectionStatus('❌ Erreur de chargement des données');
     } finally {
       setLoading(false);
@@ -87,7 +86,6 @@ export default function Dashboard() {
         
         // Tester la récupération des données
         const pharmaciesResult = await testPharmaciesData();
-        console.log('Résultat pharmacies:', pharmaciesResult);
       } catch (error) {
         setConnectionStatus('❌ Erreur de test');
         console.error('Erreur de test:', error);

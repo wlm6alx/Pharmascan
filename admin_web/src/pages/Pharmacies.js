@@ -16,24 +16,16 @@ export default function Pharmacies() {
   const fetchPharmacies = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Début récupération pharmacies...');
-      
       const { data, error } = await supabase
         .from('pharmacies')
         .select('*')
         .order('created_at', { ascending: false });
       
-      console.log('📊 Résultat requête pharmacies:', { data, error });
-      
       if (error) {
-        console.error('❌ Erreur Supabase pharmacies:', error);
         throw error;
       }
-      
-      console.log('✅ Pharmacies chargées:', data?.length || 0, 'pharmacies');
       setPharmaciesData(data || []);
     } catch (err) {
-      console.error('❌ Erreur catch pharmacies:', err);
       setError('Impossible de charger les pharmacies');
     } finally {
       setLoading(false);
