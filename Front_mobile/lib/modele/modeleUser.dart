@@ -1,7 +1,7 @@
 class Users {
   final String id;
   final String? name;
-  final String? surename;
+  final String? surname;
   final String? username;
   final String phone;
   final String email;
@@ -16,7 +16,7 @@ class Users {
     this.userstate,
     required this.id,
     required this.name,
-    required this.surename,
+    required this.surname,
     required this.phone,
     required this.username,
     required this.email,
@@ -31,8 +31,8 @@ class Users {
       role: json['role'],
       email: json['email'],
       phone: json['phone'],
-      name: json['Name'],
-      surename: json['surename'],
+      name: json['name'],
+      surname: json['surname'],
       password: json['password'] ?? '',
       token: json['token'], // 👈 ajoute
     );
@@ -46,7 +46,7 @@ class Users {
     String? name,
     String? email,
     bool? userstate,
-    String? surename,
+    String? surname,
     String? password,
     String? token, // 👈 ajoute
   }) {
@@ -56,7 +56,7 @@ class Users {
       role: role ?? this.role,
       name: name ?? this.name,
       phone: phone ?? this.phone,
-      surename: surename ?? this.surename,
+      surname: surname ?? this.surname,
       userstate: userstate ?? this.userstate,
       email: email ?? this.email,
       password: password ?? this.password,
@@ -71,8 +71,8 @@ class Users {
       'email': email,
       'password': password,
       'phone': phone,
-      'surename': surename,
-      'Name': name,
+      'surname': surname,
+      'name': name,
       'role': role,
       'UserState': userstate,
     };

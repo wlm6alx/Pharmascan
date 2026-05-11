@@ -68,7 +68,7 @@ class UserService {
     }
   }
 
-  static Future<bool> modifierUser(Users userModifie) async {
+ /* static Future<bool> modifierUser(Users userModifie) async {
     try {
       final users = await chargerUsers();
       final int index = users.indexWhere((u) => u.id == userModifie.id);
@@ -91,6 +91,50 @@ class UserService {
       print("❌ Erreur modification : $e");
       return false;
     }
+  }*/
+
+  static Future<bool> modifierUser(Users userModifie) async {
+    try {
+      final response = await _supabase
+    .from('users')
+    .update({
+      'username': userModifie.username,
+      'name': userModifie.name,
+      'surname': userModifie.surname,
+      'phone': userModifie.phone,
+      'email': userModifie.email,
+    })
+    .eq('id', userModifie.id)
+    .select(); // ou retire .select() si tu veux juste savoir si ça passe
+
+if (response == null || (response is List && response.isEmpty)) {
+  print('Aucune donnée modifiée dans Supabase');
+  return await _modifierLocalement(userModifie);
+}
+return true;
+    } catch (e) {
+      print('Erreur modification Supabase : $e');
+      // Fallback local
+      return await _modifierLocalement(userModifie);
+    }
+  }
+
+  // ← Renomme l'ancienne logique locale en méthode privée
+  static Future<bool> _modifierLocalement(Users userModifie) async {
+    try {
+      final users = await chargerUsers();
+      final int index = users.indexWhere((u) => u.id == userModifie.id);
+      if (index == -1) return false;
+      users[index] = userModifie;
+      final fichier = await _getFichier();
+      await fichier.writeAsString(
+        json.encode(users.map((u) => u.toJson()).toList()),
+      );
+      return true;
+    } catch (e) {
+      print('Erreur modification locale : $e');
+      return false;
+    }
   }
 
   // ════════════════════════════════════════════════════════
@@ -106,7 +150,7 @@ class UserService {
         data: {
           'username': nouveauUser.username,
           'name': nouveauUser.name,
-          'surname': nouveauUser.surename,
+          'surname': nouveauUser.surname,
           if (nouveauUser.phone.isNotEmpty) 'phone': nouveauUser.phone,
           'role': nouveauUser.role,
           //  'userstate': nouveauUser.userstate,

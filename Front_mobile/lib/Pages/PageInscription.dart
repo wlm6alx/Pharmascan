@@ -52,7 +52,7 @@ class _InscriptionPageState extends State<PageInscription> {
     final nouveauUser = Users(
       id: '',
       name: _NameController.text.trim(),
-      surename: _surenameController.text.trim(),
+      surname: _surenameController.text.trim(),
       phone: _phoneController.text.trim(),
       role: 'patient',
       userstate: true,

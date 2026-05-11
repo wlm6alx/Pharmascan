@@ -38,7 +38,7 @@ class _ModifierProfilPageState extends State<ModifierProfilPage> {
       _usernameController.text = user?.username ?? '';
       _emailController.text = user?.email ?? '';
       _nameController.text = user?.name ?? '';
-      _surnameController.text = user?.surename ?? '';
+      _surnameController.text = user?.surname ?? '';
       _phoneController.text = user?.phone ?? '';
       _chargement = false;
     });
@@ -72,7 +72,7 @@ class _ModifierProfilPageState extends State<ModifierProfilPage> {
       username: _usernameController.text.trim(),
       email: _emailController.text.trim(),
       name: _nameController.text.trim(),
-      surename: _surnameController.text.trim(),
+      surname: _surnameController.text.trim(),
       phone: _phoneController.text.trim(),
     );
 
@@ -189,10 +189,10 @@ class _ModifierProfilPageState extends State<ModifierProfilPage> {
                       const SizedBox(height: 18),
                       _ProfileInputField(
                         controller: _nameController,
-                        hintText: 'Prénom',
+                        hintText: 'nom',
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
-                            return 'Veuillez entrer un prénom';
+                            return 'Veuillez entrer un nom';
                           }
                           return null;
                         },
@@ -200,10 +200,10 @@ class _ModifierProfilPageState extends State<ModifierProfilPage> {
                       const SizedBox(height: 18),
                       _ProfileInputField(
                         controller: _surnameController,
-                        hintText: 'Nom',
+                        hintText: 'prénom',
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
-                            return 'Veuillez entrer un nom';
+                            return 'Veuillez entrer un prénom';
                           }
                           return null;
                         },

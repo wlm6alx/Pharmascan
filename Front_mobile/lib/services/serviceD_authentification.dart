@@ -10,7 +10,7 @@ class ServiceDAuthentification {
   // LOGIN — Supabase d'abord, fallback local ensuite
   // ════════════════════════════════════════════════════════
 
-  static Future<bool> login(String email, String password) async {
+  /*static Future<bool> login(String email, String password) async {
     try {
       // 👇 Supabase auth utilise email + password
       // On cherche d'abord l'email depuis le username
@@ -36,7 +36,7 @@ class ServiceDAuthentification {
           role: '',
           userstate: true,
           name: '',
-          surename: '',
+          surname: '',
           phone: '',
         );
         //print("✅ Connexion Supabase réussie");
@@ -56,7 +56,47 @@ class ServiceDAuthentification {
       //  print("⚠️ Erreur → fallback local : $e");
       return await _loginLocal(email, password);
     }
+  }*/
+
+  static Future<bool> login(String email, String password) async {
+  try {
+    final AuthResponse res = await _supabase.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+
+    if (res.user != null) {
+      // ← Récupère le profil complet depuis ta table users
+      final profil = await _supabase
+          .from('users')
+          .select()
+          .eq('id', res.user!.id)
+          .maybeSingle();
+
+      _utilisateurConnecte = Users(
+        id: res.user!.id,
+        username: profil?['username'] ?? email,
+        email: res.user!.email ?? '',
+        password: '',
+        token: res.session?.accessToken,
+        role: profil?['role'] ?? '',
+        userstate: profil?['userstate'] ?? true,
+        name: profil?['name'] ?? '',        // ← attention à la casse
+        surname: profil?['surname'] ?? '',
+        phone: profil?['phone'] ?? '',
+      );
+      return true;
+    }
+    return false;
+  } on AuthException catch (e) {
+    if (e.message.contains('network') || e.message.contains('connection')) {
+      return await _loginLocal(email, password);
+    }
+    return false;
+  } catch (e) {
+    return await _loginLocal(email, password);
   }
+}
 
   // 👇 Cherche l'email depuis le username dans la table users
   /* static Future<String?> _trouverEmailParUsername(String nomUtilisateur) async {
@@ -146,4 +186,5 @@ class ServiceDAuthentification {
   static Future<String?> getToken() async {
     return _supabase.auth.currentSession?.accessToken;
   }
+  
 }
